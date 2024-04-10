@@ -34,7 +34,7 @@ func SaveYaml[T any](object T, fpath string) error {
 	dir := path.Dir(fpath)
 	err = os.MkdirAll(dir, 0700)
 	if err != nil {
-		log.Fatalf("Fehler beim erstellen des %s Verzeichnisses: %v", dir, err)
+		log.Fatalf("Error creating %s directory: %v", dir, err)
 	}
 
 	err = os.WriteFile(fpath, y, 0644)

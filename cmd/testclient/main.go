@@ -8,7 +8,7 @@ import (
 	"os"
 )
 
-func CollectInformation(client *ovh.Client) {
+func CollectInformation(client *ovh.Client) []ovhwrapper.ServiceLine {
 	var servicelines []ovhwrapper.ServiceLine
 
 	services := ovhwrapper.GetServicelines(client)
@@ -61,44 +61,41 @@ func CollectInformation(client *ovh.Client) {
 		servicelines = append(servicelines, serviceline)
 	}
 
-	f, err := os.OpenFile("data/clusterdetails.txt", os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		log.Fatalf("Error opening file clusterdetails.txt: %q\n", err)
-	}
-	defer f.Close()
+	return servicelines
 
-	for _, sl := range servicelines {
-		fmt.Printf("SL ID: %s\n", sl.ID)
-		fmt.Printf("SL Name: %s\n", sl.SLDetails.Description)
-		_, err = f.WriteString(sl.SLDetails.Details())
-		if err != nil {
-			log.Printf("Error writing details of serviceline %s to file: %q\n", sl.SLDetails.Description, err)
-		}
-
-		for _, cluster := range sl.Cluster {
-			fmt.Printf("   Cluster ID:     %s\n", cluster.ID)
-			fmt.Printf("   Cluster Name:   %s\n", cluster.Name)
-			fmt.Printf("   Cluster Region: %s\n", cluster.Region)
-			fmt.Printf("   Cluster Status: %s\n", cluster.Status)
-			fmt.Println("   ------------------------------")
-
-			_, err = f.WriteString(cluster.Details() + "   -----\n")
-			if err != nil {
-				log.Printf("Error writing details of cluster %s to file: %q\n", cluster.Name, err)
-			}
-
-		}
-		fmt.Println("\n\n")
-		f.WriteString("------------------------------\n\n")
-	}
-	//y, err := os.OpenFile("clusterdetails.yaml", os.O_CREATE|os.O_WRONLY, 0644)
+	// from here on code is ignored and never reached
+	//f, err := os.OpenFile("data/clusterdetails.txt", os.O_CREATE|os.O_WRONLY, 0644)
 	//if err != nil {
-	//	log.Fatalf("Error opening file clusterdetails.yaml: %q\n", err)
+	//	log.Fatalf("Error opening file clusterdetails.txt: %q\n", err)
 	//}
-	//defer y.Close()
+	//defer f.Close()
 	//
-	//y.WriteString(ovhwrapper.ToYaml(servicelines))
-	ovhwrapper.SaveYaml(servicelines, "data/clusterdetails.yaml")
+	//for _, sl := range servicelines {
+	//	fmt.Printf("SL ID: %s\n", sl.ID)
+	//	fmt.Printf("SL Name: %s\n", sl.SLDetails.Description)
+	//	_, err = f.WriteString(sl.SLDetails.Details())
+	//	if err != nil {
+	//		log.Printf("Error writing details of serviceline %s to file: %q\n", sl.SLDetails.Description, err)
+	//	}
+	//
+	//	for _, cluster := range sl.Cluster {
+	//		fmt.Printf("   Cluster ID:     %s\n", cluster.ID)
+	//		fmt.Printf("   Cluster Name:   %s\n", cluster.Name)
+	//		fmt.Printf("   Cluster Region: %s\n", cluster.Region)
+	//		fmt.Printf("   Cluster Status: %s\n", cluster.Status)
+	//		fmt.Println("   ------------------------------")
+	//
+	//		_, err = f.WriteString(cluster.Details() + "   -----\n")
+	//		if err != nil {
+	//			log.Printf("Error writing details of cluster %s to file: %q\n", cluster.Name, err)
+	//		}
+	//
+	//	}
+	//	fmt.Println("\n\n")
+	//	f.WriteString("------------------------------\n\n")
+	//}
+	//ovhwrapper.SaveYaml(servicelines, "data/clusterdetails.yaml")
+	//return servicelines
 }
 
 func GetCluster(client *ovh.Client, serviceid, clusterid string) *ovhwrapper.K8SCluster {
@@ -126,29 +123,77 @@ func GetCluster(client *ovh.Client, serviceid, clusterid string) *ovhwrapper.K8S
 	return cluster
 }
 
-func main() {
-	config := ovhwrapper.ReadConfig("ovh.conf")
-	config.Default.Endpoint = "ovh-eu"
-
-	client, err := ovhwrapper.CreateClient()
+func ShowCredentials(reader, writer *ovh.Client) {
+	cred, err := ovhwrapper.GetCredential(reader)
 	if err != nil {
-		log.Fatalf("Error creating OVH API Client: %q\n", err)
+		log.Printf("Error getting reader credentials: %q\n", err)
+	}
+	fmt.Println("Reader Token:\n")
+	fmt.Println(ovhwrapper.ToYaml(cred))
+
+	cred, err = ovhwrapper.GetCredential(writer)
+	if err != nil {
+		log.Printf("Error getting writer credentials: %q\n", err)
+	}
+	fmt.Println("Writer Token:\n")
+	fmt.Println(ovhwrapper.ToYaml(cred))
+}
+
+func ShowStatusAll(client *ovh.Client) {
+	sls := CollectInformation(client)
+	for _, sl := range sls {
+		fmt.Printf("Service Line: %s\n", sl.SLDetails.Description)
+		for _, cl := range sl.Cluster {
+			fmt.Printf("  Cluster: %s (%s)\n  Version: %s (available: %v)\n  etcd: %d%% (%d of %d)\n\n",
+				cl.Name, cl.Status, cl.Version, cl.NextUpgradeVersions, (cl.EtcdUsage.Usage * 100 / cl.EtcdUsage.Quota), cl.EtcdUsage.Usage, cl.EtcdUsage.Quota)
+			for _, n := range cl.Nodes {
+				fmt.Printf("    Nodename: %s (%-10s)\t-\t%s (up2date: %v)\n", n.Name, n.Status, n.Version, n.IsUpToDate)
+			}
+			fmt.Printf("\n\n\n")
+		}
+		fmt.Println("\n\n-------------------\n\n")
 	}
 
-	if config.EU.ConsumerKey == "" {
+}
+
+func main() {
+	var reader *ovh.Client
+	var writer *ovh.Client
+
+	config, err := ovhwrapper.ReadConfiguration()
+	if err != nil {
+		log.Fatalf("Error loading configuration, no valid config found: %v", err)
+	}
+
+	//client, err := ovhwrapper.CreateClient()
+	reader, err = ovhwrapper.CreateReader(*config)
+	if err != nil {
+		log.Fatalf("Error creating OVH API Reader: %q\n", err)
+	}
+
+	writer, err = ovhwrapper.CreateWriter(*config)
+	if err != nil {
+		log.Fatalf("Error creating OVH API Writer: %q\n", err)
+	}
+
+	// create Writer ConsumerKey if necessary
+	if config.Writer.ConsumerKey == "" {
 		// consumer key erzeugen
-		consumerkey, err := ovhwrapper.CreateConsumerKey(client)
+		consumerkey, err := ovhwrapper.CreateConsumerKey(reader, writer)
 		if err != nil {
 			log.Fatalf("Error: %q\n", err)
 		}
-		config.EU.ConsumerKey = consumerkey
+		config.Writer.ConsumerKey = consumerkey
 
-		config.Save("ovh.conf")
-
+		err = ovhwrapper.SaveYaml(config, config.GetPath())
+		if err != nil {
+			log.Fatalf("Error saving config file %s: %q\n", config.GetPath(), err)
+		}
 		os.Exit(0)
 	}
 
-	//CollectInformation(client)
+	ShowStatusAll(reader)
+	//ShowCredentials(reader, writer)
 
 	//serviceid := "xxx"
 	//clusterid := "xxx"
@@ -205,6 +250,4 @@ func main() {
 
 	//fmt.Println(kc)
 
-	cred, err := ovhwrapper.GetCredential(client)
-	fmt.Println(ovhwrapper.ToYaml(cred))
 }
