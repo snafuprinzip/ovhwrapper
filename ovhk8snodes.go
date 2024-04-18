@@ -73,6 +73,23 @@ type K8SNodepool struct {
 	} `json:"template"`
 }
 
+// K8SFlavor represents the flavor of a Kubernetes node.
+//
+// Fields:
+// - Name: the name of the flavor.
+// - Category: the category to which the flavor belongs.
+// - VCPUs: the number of virtual CPUs allocated to the flavor.
+// - GPUs: the number of GPUs allocated to the flavor.
+// - RAM: the amount of RAM allocated to the flavor.
+
+type K8SFlavor struct {
+	Name     string `json:"name" yaml:"name"`
+	Category string `json:"category" yaml:"category"`
+	VCPUs    int    `json:"vCPUs" yaml:"vcpus"`
+	GPUs     int    `json:"gpus" yaml:"gpus"`
+	RAM      int    `json:"ram" yaml:"ram"`
+}
+
 // K8sNodes is a type that represents a list of K8SNode objects. It is used to store information about Kubernetes nodes.
 // K8SNode is a struct that represents a Kubernetes node. It contains various properties such as Id, ProjectId,
 // InstanceId, NodePoolId, Name, Flavor, Status, IsUpToDate, Version, Created
@@ -82,6 +99,8 @@ type K8sNodes []K8SNode
 // Each K8SNodepool contains various details about a node pool in a Kubernetes cluster, such as its ID, project ID,
 // name, flavor, status, size status, autoscaling configuration, and
 type K8SNodepools []K8SNodepool
+
+type K8SFlavors map[string]K8SFlavor
 
 // GetK8SNodes retrieves the list of Kubernetes nodes in a given service and cluster ID.
 // It takes in an OVH client, the service name, and the cluster ID as parameters.
@@ -151,4 +170,24 @@ func GetK8SNodepool(client *ovh.Client, service, clusterid, poolid string) (K8SN
 	}
 
 	return nodepool, nil
+}
+
+func GetK8SFlavors(client *ovh.Client, service, clusterid string) (K8SFlavors, error) {
+	var flavors K8SFlavors = make(K8SFlavors, 4)
+	var flavorlist []K8SFlavor
+	if err := client.Get("/cloud/project/"+service+"/kube/"+clusterid+"/flavors", &flavorlist); err != nil {
+		fmt.Printf("Error getting k8s flavors: %q\n", err)
+		return flavors, err
+	}
+
+	for _, flavor := range flavorlist {
+		flavors[flavor.Name] = flavor
+	}
+
+	return flavors, nil
+}
+
+func (n K8SNode) StatusMsg(flavor K8SFlavor) string {
+	return fmt.Sprintf("    Node: %s\t[%-10s]\t%s (%2d vcpus; %3d GB memory) - %s (up2date: %-5v) ",
+		n.Name, n.Status, flavor.Name, flavor.VCPUs, flavor.RAM, n.Version, n.IsUpToDate)
 }

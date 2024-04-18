@@ -9,6 +9,7 @@ import (
 	"os"
 	"slices"
 	"sort"
+	"strings"
 )
 
 type KubeConfig struct {
@@ -46,6 +47,18 @@ type User struct {
 type Users struct {
 	Name string `yaml:"name"`
 	User User   `yaml:"user"`
+}
+
+// ShortenName returns a shortened version of the given string
+func ShortenName(name string) string {
+	shortname := name
+	shortname = strings.TrimPrefix(shortname, "sl_")
+	shortname = strings.TrimPrefix(shortname, "kubernetes-admin@")
+	shortname = strings.TrimPrefix(shortname, "ovh-k8s-")
+	shortname = strings.TrimPrefix(shortname, "sl-")
+	shortname = strings.TrimPrefix(shortname, "app-plat-")
+	shortname = strings.Replace(shortname, "-00", "", 1)
+	return shortname
 }
 
 // ListContexts listet alle Kontexte der globalen kubeconfig unter /etc/k8s/config auf

@@ -3,6 +3,7 @@ package ovhwrapper
 import (
 	"fmt"
 	"github.com/ovh/go-ovh/ovh"
+	"strings"
 	"time"
 )
 
@@ -32,11 +33,17 @@ type ServiceLine struct {
 	Cluster   []K8SCluster
 }
 
-func (sl OVHServiceLine) Details() string {
+func (sl ServiceLine) Details() string {
 	return fmt.Sprintf("Project ID: %s\n Project Name: %s\n Description: %s\n Plan Code: %s\n Unleash: %t\n "+
 		"Expiration: %v\n Creation Date: %s\n Order ID: %v\n Access: %s\n Status: %s\n Manual Quota: %t\n IAM: %s\n",
-		sl.ProjectID, sl.ProjectName, sl.Description, sl.PlanCode, sl.Unleash,
-		sl.Expiration, sl.CreationDate, sl.OrderID, sl.Access, sl.Status, sl.ManualQuota, sl.Iam.Details())
+		sl.SLDetails.ProjectID, sl.SLDetails.ProjectName, sl.SLDetails.Description, sl.SLDetails.PlanCode,
+		sl.SLDetails.Unleash, sl.SLDetails.Expiration, sl.SLDetails.CreationDate, sl.SLDetails.OrderID,
+		sl.SLDetails.Access, sl.SLDetails.Status, sl.SLDetails.ManualQuota, sl.SLDetails.Iam.Details())
+}
+
+func (sl ServiceLine) StatusMsg() string {
+	return fmt.Sprintf("Serviceline: %-35s (%s)\t[%s]", sl.SLDetails.Description, sl.SLDetails.ProjectID,
+		strings.ToUpper(sl.SLDetails.Status))
 }
 
 func (iam Iam) Details() string {
@@ -60,4 +67,15 @@ func GetServicelines(client *ovh.Client) []string {
 	}
 
 	return servicelist
+}
+
+func GetOVHServiceline(client *ovh.Client, service string) *OVHServiceLine {
+	serviceline := &OVHServiceLine{}
+
+	if err := client.Get("/cloud/project/"+service, serviceline); err != nil {
+		fmt.Printf("Error getting kube service list: %q\n", err)
+		return serviceline
+	}
+
+	return nil
 }

@@ -8,6 +8,10 @@ import (
 	"path"
 )
 
+type StatusMsg interface {
+	StatusMsg() string
+}
+
 func ToYaml[T any](object T) string {
 	y, err := yaml.Marshal(&object)
 	if err != nil {
