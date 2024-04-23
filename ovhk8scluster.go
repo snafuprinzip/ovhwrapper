@@ -3,6 +3,7 @@ package ovhwrapper
 import (
 	"fmt"
 	"github.com/ovh/go-ovh/ovh"
+	"log"
 	"time"
 )
 
@@ -117,12 +118,36 @@ func GetK8SClusterIDs(client *ovh.Client, service string) ([]string, error) {
 }
 
 func GetK8SCluster(client *ovh.Client, service, clusterid string) *K8SCluster {
-	cluster := &K8SCluster{}
-	if err := client.Get("/cloud/project/"+service+"/kube/"+clusterid, cluster); err != nil {
-		fmt.Printf("Error getting k8s cluster details: %q\n", err)
+	var cluster K8SCluster
+	if err := client.Get("/cloud/project/"+service+"/kube/"+clusterid, &cluster); err != nil {
+		fmt.Printf("Error getting k8s cluster details for %s in sl %s: %q\n", clusterid, service, err)
 		return nil
 	}
-	return cluster
+	return &cluster
+}
+
+func GetK8SClusterDetails(client *ovh.Client, cluster *K8SCluster, serviceid, clusterid string) (*K8SCluster, error) {
+	var err error
+
+	cluster.EtcdUsage, err = GetK8SEtcd(client, serviceid, clusterid)
+	if err != nil {
+		log.Printf("Error getting etcd usage of cluster %s in SL %s: %v\n", serviceid, clusterid, err)
+		return nil, err
+	}
+
+	cluster.Nodepools, err = GetK8SNodepools(client, serviceid, clusterid)
+	if err != nil {
+		log.Printf("Error getting nodepools of cluster %s in SL %s: %v\n", serviceid, clusterid, err)
+		return nil, err
+	}
+
+	cluster.Nodes, err = GetK8SNodes(client, serviceid, clusterid)
+	if err != nil {
+		log.Printf("Error getting nodes of cluster %s in SL %s: %v\n", serviceid, clusterid, err)
+		return nil, err
+	}
+
+	return cluster, nil
 }
 
 func UpdateK8SCluster(client *ovh.Client, service, clusterid string, latest, force bool) error {

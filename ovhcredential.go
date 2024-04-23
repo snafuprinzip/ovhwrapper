@@ -45,7 +45,6 @@ func PrintCredential(cred *OVHCredential) {
 func GetCredential(client *ovh.Client) (OVHCredential, error) {
 	cred := OVHCredential{}
 	if err := client.Get("/auth/currentCredential", &cred); err != nil {
-		//fmt.Printf("Error getting k8s cluster details: %q\n", err)
 		return cred, err
 	}
 	return cred, nil

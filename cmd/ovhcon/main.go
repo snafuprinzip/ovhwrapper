@@ -10,250 +10,18 @@ import (
 	"os"
 )
 
-// CollectInformation collects the information of all service lines, including their clusters down to the nodes.
-func CollectInformation(client *ovh.Client) []ovhwrapper.ServiceLine {
-	var servicelines []ovhwrapper.ServiceLine
-
-	services := ovhwrapper.GetServicelines(client)
-	for _, service := range services {
-		serviceline := CollectServiceline(client, service)
-		servicelines = append(servicelines, *serviceline)
-	}
-
-	return servicelines
-}
-
-// GetServiceline asks the API for 'shallow' information about a specific serviceline, excluding the clusters.
-func GetServiceline(client *ovh.Client, serviceid string) *ovhwrapper.ServiceLine {
-	servicedetails, err := ovhwrapper.GetServicelineDetails(client, serviceid)
-	if err != nil {
-		log.Fatalf("Failed to get serviceline details: %v", err)
-	}
-	serviceline := ovhwrapper.ServiceLine{
-		ID:        serviceid,
-		SLDetails: servicedetails,
-		Cluster:   []ovhwrapper.K8SCluster{},
-	}
-	return &serviceline
-}
-
-// CollectServiceline collects information about a serviceline, including its clusters.
-func CollectServiceline(client *ovh.Client, serviceid string) *ovhwrapper.ServiceLine {
-	servicedetails, err := ovhwrapper.GetServicelineDetails(client, serviceid)
-	if err != nil {
-		log.Fatalf("Failed to get serviceline details: %v", err)
-	}
-	clusterids, err := ovhwrapper.GetK8SClusterIDs(client, serviceid)
-	if err != nil {
-		log.Fatalf("Failed to get cluster IDs: %v", err)
-	}
-	clusterlist := make([]ovhwrapper.K8SCluster, 1)
-	for _, clusterid := range clusterids {
-		cluster := CollectCluster(client, serviceid, clusterid)
-		if cluster != nil {
-			clusterlist = append(clusterlist, *cluster)
-		}
-	}
-	serviceline := ovhwrapper.ServiceLine{
-		ID:        serviceid,
-		SLDetails: servicedetails,
-		Cluster:   clusterlist,
-	}
-
-	return &serviceline
-}
-
-// GetCluster asks the API for 'shallow' information about a specific cluster, excluding nested information
-// like etcd usage, nodes or nodepools
-func GetCluster(client *ovh.Client, serviceid, clusterid string) *ovhwrapper.K8SCluster {
-	return ovhwrapper.GetK8SCluster(client, serviceid, clusterid)
-}
-
-// CollectCluster returns information about a Cluster, including its etcd usage, nodepools and nodes.
-func CollectCluster(client *ovh.Client, serviceid, clusterid string) *ovhwrapper.K8SCluster {
-	cluster := ovhwrapper.GetK8SCluster(client, serviceid, clusterid)
-	var err error
-
-	cluster.EtcdUsage, err = ovhwrapper.GetK8SEtcd(client, serviceid, clusterid)
-	if err != nil {
-		log.Printf("Error getting etcd usage of cluster %s in SL %s: %v\n", serviceid, clusterid, err)
-		return nil
-	}
-
-	cluster.Nodepools, err = ovhwrapper.GetK8SNodepools(client, serviceid, clusterid)
-	if err != nil {
-		log.Printf("Error getting nodepools of cluster %s in SL %s: %v\n", serviceid, clusterid, err)
-		return nil
-	}
-
-	cluster.Nodes, err = ovhwrapper.GetK8SNodes(client, serviceid, clusterid)
-	if err != nil {
-		log.Printf("Error getting nodes of cluster %s in SL %s: %v\n", serviceid, clusterid, err)
-		return nil
-	}
-
-	return cluster
-}
-
-// MatchItem will check if the id or the (abbreviated) name matches with the identifier and returns true or false
-func MatchItem[T ovhwrapper.ServiceLine | ovhwrapper.K8SCluster](object T, identifier string) bool {
-	match := false
-	switch object := any(object).(type) { // lazy hack, as generic functions implement specific types and not interfaces, so we cast to any to check its type
-	case ovhwrapper.ServiceLine:
-		if object.ID == identifier || object.SLDetails.Description == identifier || ovhwrapper.ShortenName(object.SLDetails.Description) == identifier {
-			match = true
-		}
-	case ovhwrapper.K8SCluster:
-		if object.ID == identifier || object.Name == identifier || ovhwrapper.ShortenName(object.Name) == identifier {
-			match = true
-		}
-	}
-	return match
-}
-
 /********************************************************************
  *** Main Program Functions                                       ***
  ********************************************************************/
 
-func credentials(reader, writer *ovh.Client, format string) {
-	rcred, err := ovhwrapper.GetCredential(reader)
-	if err != nil {
-		log.Printf("Error getting reader credentials: %q\n", err)
-	}
-	wcred, err := ovhwrapper.GetCredential(writer)
-	if err != nil {
-		log.Printf("Error getting writer credentials: %q\n", err)
-	}
-
-	switch format {
-	case "yaml":
-		fmt.Println("Reader Token:\n-------------")
-		fmt.Println(ovhwrapper.ToYaml(rcred))
-
-		fmt.Println("Writer Token:\n-------------")
-		fmt.Println(ovhwrapper.ToYaml(wcred))
-	case "json":
-		fmt.Println("Reader Token:\n-------------")
-		fmt.Println(ovhwrapper.ToJSON(rcred))
-
-		fmt.Println("Writer Token:\n-------------")
-		fmt.Println(ovhwrapper.ToJSON(wcred))
-	case "text":
-		fallthrough
-	default:
-		fmt.Println("Reader Token:\n-------------")
-		ovhwrapper.PrintCredential(&rcred)
-
-		fmt.Println("Writer Token:\n-------------")
-		ovhwrapper.PrintCredential(&wcred)
-	}
-}
-
-// list lists servicelines and their clusters (when -a is set),
-// servicelines (when -s is not set) or clusters (when -s is set)
-func list(client *ovh.Client, all bool, serviceid string) {
-	sls := make([]ovhwrapper.ServiceLine, 5)
-	if all {
-		slids := ovhwrapper.GetServicelines(client)
-		for _, slid := range slids {
-			var err error
-			sl := ovhwrapper.ServiceLine{ID: slid}
-			sl.SLDetails, err = ovhwrapper.GetServicelineDetails(client, slid)
-			if err != nil {
-				log.Fatalf("Failed to get service lines: %v", err)
-			}
-			clusterids, err := ovhwrapper.GetK8SClusterIDs(client, slid)
-			if err != nil {
-				log.Fatalf("Failed to get cluster IDs: %v", err)
-			}
-			clusterlist := make([]ovhwrapper.K8SCluster, 1)
-			for _, clusterid := range clusterids {
-				cluster := GetCluster(client, serviceid, clusterid)
-				if cluster != nil {
-					clusterlist = append(clusterlist, *cluster)
-				}
-			}
-			sl.Cluster = clusterlist
-			sls = append(sls, sl)
-		}
-	}
-
-	if serviceid != "" {
-		var err error
-		sl := ovhwrapper.ServiceLine{ID: serviceid}
-		sl.SLDetails, err = ovhwrapper.GetServicelineDetails(client, serviceid)
-		if err != nil {
-			log.Fatalf("Failed to get service lines: %v", err)
-		}
-		clusterids, err := ovhwrapper.GetK8SClusterIDs(client, serviceid)
-		if err != nil {
-			log.Fatalf("Failed to get cluster IDs: %v", err)
-		}
-		clusterlist := make([]ovhwrapper.K8SCluster, 1)
-		for _, clusterid := range clusterids {
-			cluster := GetCluster(client, serviceid, clusterid)
-			if cluster != nil {
-				clusterlist = append(clusterlist, *cluster)
-			}
-		}
-		sl.Cluster = clusterlist
-		sls = append(sls, sl)
-	}
-
-	for _, sl := range sls {
-		fmt.Printf("%-25s (%s) \t %s \n", ovhwrapper.ShortenName(sl.SLDetails.Description), sl.ID, sl.SLDetails.Description)
-		for _, cluster := range sl.Cluster {
-			fmt.Printf("  %-25s (%s) \t %s \n", ovhwrapper.ShortenName(cluster.Name), cluster.ID, cluster.Name)
-		}
-		fmt.Println()
-	}
-}
-
-// status shows the current status of servicelines and their clusters (when -a is set),
-// or a specific cluster (when -s and -c is set)
-func status(sls []ovhwrapper.ServiceLine, flavors ovhwrapper.K8SFlavors, all bool, serviceline, cluster string) {
-	if all {
-		for _, sl := range sls {
-			fmt.Println(sl.StatusMsg())
-			for _, cl := range sl.Cluster {
-				fmt.Println(cl.StatusMsg())
-				for _, n := range cl.Nodes {
-					f := flavors[n.Flavor]
-					fmt.Println(n.StatusMsg(f))
-				}
-				fmt.Println()
-			}
-			fmt.Println("-------------------\n")
-		}
-		return
-	}
-
-	if serviceline != "" { // list serviceline and it's clusters
-		for _, sl := range sls {
-			if MatchItem(sl, serviceline) {
-				fmt.Println(sl.StatusMsg())
-				for _, cl := range sl.Cluster {
-					if cluster == "" || MatchItem(cl, cluster) {
-						fmt.Println(cl.StatusMsg())
-						for _, n := range cl.Nodes {
-							f := flavors[n.Flavor]
-							fmt.Println(n.StatusMsg(f))
-						}
-						fmt.Println()
-					}
-				}
-			}
-		}
-		return
-	}
-}
-
+// list servicelines and/or clusters
 // show cluster status
 // show api credentials
 // update cluster
 // kubeconfig get
 // kubeconfig update
 // kubeconfig reset
+// logout (revoke consumer key)
 
 // options
 //   -a all clusters
@@ -303,7 +71,7 @@ func main() {
 		Version:   "v0.0.1",
 		Copyright: "(c) 2014 Michael Leimenmeier",
 		Usage:     "cli tool for the ovh api",
-		UsageText: "ovhcon - cli tool for the ovh api",
+		UsageText: "ovhcon - cli tool for the ovh managed k8s api",
 		Commands: []*cli.Command{
 			{
 				Name:    "list",
@@ -339,15 +107,7 @@ func main() {
 					&cli.StringFlag{Name: "cluster", Aliases: []string{"c"}, Usage: "specific cluster of a given serviceline"},
 				},
 				Action: func(ctx context.Context, cmd *cli.Command) error {
-					fmt.Println("Collecting cluster information...")
-					sls := CollectInformation(reader)
-					fmt.Println("Collecting information about available flavors...")
-					flavors, err := ovhwrapper.GetK8SFlavors(reader, sls[0].ID, sls[0].Cluster[0].ID)
-					if err != nil {
-						log.Printf("Error getting available flavors: %q\n", err)
-					}
-
-					status(sls, flavors, cmd.Bool("all"), cmd.String("serviceline"), cmd.String("cluster"))
+					status(reader, cmd.Bool("all"), cmd.String("serviceline"), cmd.String("cluster"))
 					return nil
 				},
 			},
@@ -359,24 +119,33 @@ func main() {
 					{
 						Name:    "get",
 						Aliases: []string{"g"},
-						Usage:   "get kubeconfig from ovh cloud",
-						Action: func(ctx context.Context, cmd *cli.Command) error {
-							fmt.Println("get kubeconfig: ", cmd.Args().First())
-							return nil
+						Usage: "get kubeconfig from ovh cloud and save them to file, to certificate files or update " +
+							"entries in a central kubeconfig file",
+						Flags: []cli.Flag{
+							&cli.BoolFlag{Name: "all", Aliases: []string{"a"}, Usage: "all servicelines and clusters"},
+							&cli.StringFlag{Name: "serviceline", Aliases: []string{"s"}, Usage: "serviceline id or name"},
+							&cli.StringFlag{Name: "cluster", Aliases: []string{"c"}, Usage: "cluster id or name"},
+							&cli.StringFlag{Name: "output", Aliases: []string{"o"}, Usage: "file, central or certs"},
 						},
-					},
-					{
-						Name:    "update",
-						Aliases: []string{"u"},
-						Usage:   "update kubeconfig in global config from ovh cloud",
 						Action: func(ctx context.Context, cmd *cli.Command) error {
-							fmt.Println("update kubeconfig in global config file: ", cmd.Args().First())
+							DownloadKubeconfig(reader, writer, cmd.Bool("all"), cmd.String("serviceline"),
+								cmd.String("cluster"), cmd.String("output"))
 							return nil
 						},
 					},
 					{
 						Name:  "reset",
 						Usage: "reset kubeconfig of cluster in the ovh cloud, will redeploy the cluster and reinstall the nodes",
+						Flags: []cli.Flag{
+							&cli.StringFlag{Name: "serviceline", Aliases: []string{"s"}, Usage: "serviceline id or name"},
+							&cli.StringFlag{Name: "cluster", Aliases: []string{"c"}, Usage: "cluster id or name"},
+							&cli.BoolFlag{Name: "force", Aliases: []string{"f"}, Usage: "force update"},
+							&cli.BoolFlag{Name: "latest", Aliases: []string{"l"},
+								Usage: "set strategy to LATEST_PATCH (default is NEXT_MINOR)"},
+							&cli.BoolFlag{Name: "background", Aliases: []string{"b"},
+								Usage: "if not set the update status will be printed in 1 minute intervals until the cluster is READY again, " +
+									"if background is set the program will exit immediately after starting the upgrade"},
+						},
 						Action: func(ctx context.Context, cmd *cli.Command) error {
 							fmt.Println("reset kubeconfig: ", cmd.Args().First())
 							return nil
