@@ -128,6 +128,7 @@ func main() {
 							&cli.StringFlag{Name: "output", Aliases: []string{"o"}, Usage: "file, central or certs"},
 						},
 						Action: func(ctx context.Context, cmd *cli.Command) error {
+
 							DownloadKubeconfig(reader, writer, cmd.Bool("all"), cmd.String("serviceline"),
 								cmd.String("cluster"), cmd.String("output"))
 							return nil

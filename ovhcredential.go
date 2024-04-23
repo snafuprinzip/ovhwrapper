@@ -32,7 +32,7 @@ func PrintCredential(cred *OVHCredential) {
 		cred.ApplicationId, cred.CredentialId, cred.Status, cred.Creation, cred.Expiration, cred.LastUse, cred.OvhSupport)
 
 	for _, rule := range cred.Rules {
-		str += fmt.Sprintf("  %-7s %s", rule.Method, rule.Path)
+		str += fmt.Sprintf("  %-7s %s\n", rule.Method, rule.Path)
 	}
 	str += "\nAllowed IPs: \n"
 	for _, ip := range cred.AllowedIPs {

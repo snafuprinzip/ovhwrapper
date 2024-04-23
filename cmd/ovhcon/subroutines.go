@@ -144,8 +144,8 @@ func DownloadKubeconfig(reader, writer *ovh.Client, all bool, serviceid, cluster
 			log.Fatalf("Failed to get cluster IDs: %v", err)
 		}
 		var clusterlist []ovhwrapper.K8SCluster
-		for _, clusterid := range clusterids {
-			cluster := ovhwrapper.GetK8SCluster(reader, sl.ID, clusterid)
+		for _, clid := range clusterids {
+			cluster := ovhwrapper.GetK8SCluster(reader, slid, clid)
 			if cluster != nil {
 				clusterlist = append(clusterlist, *cluster)
 			}
@@ -156,8 +156,8 @@ func DownloadKubeconfig(reader, writer *ovh.Client, all bool, serviceid, cluster
 
 	if all {
 		for _, sl := range sls {
-			for _, cluster := range sl.Cluster {
-				kc, err := ovhwrapper.GetKubeconfig(writer, sl.ID, cluster.ID)
+			for _, cl := range sl.Cluster {
+				kc, err := ovhwrapper.GetKubeconfig(writer, sl.ID, cl.ID)
 				if err != nil {
 					log.Printf("Failed to get kubeconfig: %v", err)
 					continue
@@ -168,7 +168,7 @@ func DownloadKubeconfig(reader, writer *ovh.Client, all bool, serviceid, cluster
 				case "file":
 					fallthrough
 				default:
-					err = ovhwrapper.SaveYaml(kc, sl.SLDetails.Description+"_"+cluster.Name+".yaml")
+					err = ovhwrapper.SaveYaml(kc, sl.SLDetails.Description+"_"+cl.Name+".yaml")
 					if err != nil {
 						log.Printf("Saving Kubeconfig failed: %v", err)
 					}
@@ -177,15 +177,15 @@ func DownloadKubeconfig(reader, writer *ovh.Client, all bool, serviceid, cluster
 			return
 		}
 	} else if serviceid != "" && clusterid != "" {
-		kc, err := ovhwrapper.GetKubeconfig(writer, serviceid, clusterid)
-		if err != nil {
-			log.Printf("Failed to get kubeconfig: %v", err)
-			return
-		}
 		for _, sl := range sls {
 			if MatchItem(sl, serviceid) {
 				for _, cluster := range sl.Cluster {
 					if MatchItem(cluster, clusterid) {
+						kc, err := ovhwrapper.GetKubeconfig(writer, sl.ID, cluster.ID)
+						if err != nil {
+							log.Printf("Failed to get kubeconfig: %v", err)
+							return
+						}
 						switch output {
 						case "global":
 						case "certs":

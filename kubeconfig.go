@@ -217,15 +217,10 @@ func GetKubeconfig(client *ovh.Client, service, clusterid string) (KubeConfig, e
 
 	var response kcresponse
 	var kubeconfig KubeConfig
-	//type AccessPutParams struct {
-	//	Description string `json:"description"`
-	//}
 
-	// Update the description of the service
-	//params := &AccessPutParams{Description: "My awesome access"}
-	//if err := client.Post("/cloud/project/"+service+"/kube/"+clusterid+"/kubeconfig", params, &kubeconfig); err != nil {
-	if err := client.Post("/cloud/project/"+service+"/kube/"+clusterid+"/kubeconfig", nil, &response); err != nil {
-		fmt.Printf("Error recieving kubeconfig: %q\n", err)
+	url := fmt.Sprintf("/cloud/project/%s/kube/%s/kubeconfig", service, clusterid)
+	if err := client.Post(url, nil, &response); err != nil {
+		fmt.Printf("Error recieving kubeconfig (url: %s): %q\n", url, err)
 		return kubeconfig, err
 	}
 
