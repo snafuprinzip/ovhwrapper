@@ -1,10 +1,14 @@
 package main
 
 import (
+	"encoding/base64"
 	"fmt"
 	"github.com/ovh/go-ovh/ovh"
 	"log"
+	"os"
 	"ovhwrapper"
+	"path"
+	"time"
 )
 
 // credentials returns information about the reader and writer accounts in different formats (yaml, json or text)
@@ -127,9 +131,17 @@ func list(client *ovh.Client, all bool, serviceid string) {
 	}
 }
 
-func DownloadKubeconfig(reader, writer *ovh.Client, all bool, serviceid, clusterid, output string) {
+func DownloadKubeconfig(reader, writer *ovh.Client, all bool, serviceid, clusterid, output, outpath string) {
 	var sls []ovhwrapper.ServiceLine
 	var err error
+	globalconfig := ovhwrapper.KubeConfig{
+		APIVersion: "v1",
+		Kind:       "Config",
+	}
+
+	if outpath == "" {
+		outpath = "./"
+	}
 
 	// Get flat Serviceline and cluster info
 	slids := ovhwrapper.GetServicelines(reader) // list of sl ids
@@ -156,6 +168,7 @@ func DownloadKubeconfig(reader, writer *ovh.Client, all bool, serviceid, cluster
 
 	if all {
 		for _, sl := range sls {
+			fmt.Println("Processing Serviceline: ", sl.SLDetails.Description)
 			for _, cl := range sl.Cluster {
 				kc, err := ovhwrapper.GetKubeconfig(writer, sl.ID, cl.ID)
 				if err != nil {
@@ -164,46 +177,132 @@ func DownloadKubeconfig(reader, writer *ovh.Client, all bool, serviceid, cluster
 				}
 				switch output {
 				case "global":
+					globalconfig.AddContext(kc)
 				case "certs":
+					certpath := path.Join(outpath, sl.SLDetails.Description, cl.Name)
+					err := os.MkdirAll(certpath, 0700)
+					if err != nil {
+						log.Printf("Failed to create output directory: %v", err)
+						continue
+					}
+
+					fmt.Printf("Extracting certificates for %s serviceline's %s cluster to %s...\n",
+						sl.SLDetails.Description, cl.Name, certpath)
+
+					ca, err := base64.StdEncoding.DecodeString(kc.Clusters[0].Cluster.CertificateAuthorityData)
+					if err != nil {
+						log.Fatal("error decoding ca certificate:", err)
+					}
+					err = os.WriteFile(path.Join(certpath, "ca.crt"), ca, 0600)
+					if err != nil {
+						fmt.Printf("Failed to write ca.crt output file: %v", err)
+					}
+
+					crt, err := base64.StdEncoding.DecodeString(kc.Users[0].User.ClientCertificateData)
+					if err != nil {
+						log.Fatal("error decoding user client certificate:", err)
+					}
+					err = os.WriteFile(path.Join(certpath, "client.crt"), crt, 0600)
+					if err != nil {
+						fmt.Printf("Failed to write client.crt output file: %v", err)
+					}
+
+					key, err := base64.StdEncoding.DecodeString(kc.Users[0].User.ClientKeyData)
+					if err != nil {
+						log.Fatal("error decoding user client private key:", err)
+					}
+					err = os.WriteFile(path.Join(certpath, "client.key"), key, 0600)
+					if err != nil {
+						fmt.Printf("Failed to write client.key output file: %v", err)
+					}
 				case "file":
 					fallthrough
 				default:
-					err = ovhwrapper.SaveYaml(kc, sl.SLDetails.Description+"_"+cl.Name+".yaml")
+					err := os.MkdirAll(outpath, 0700)
+					if err != nil {
+						log.Printf("Failed to create output directory: %v", err)
+						continue
+					}
+					fmt.Printf("Saving kubeconfig to %s...\n", path.Join(outpath, sl.SLDetails.Description+"_"+cl.Name+".yaml"))
+					err = ovhwrapper.SaveYaml(kc, path.Join(outpath, sl.SLDetails.Description+"_"+cl.Name+".yaml"))
 					if err != nil {
 						log.Printf("Saving Kubeconfig failed: %v", err)
 					}
 				}
 			}
-			return
 		}
 	} else if serviceid != "" && clusterid != "" {
 		for _, sl := range sls {
 			if MatchItem(sl, serviceid) {
-				for _, cluster := range sl.Cluster {
-					if MatchItem(cluster, clusterid) {
-						kc, err := ovhwrapper.GetKubeconfig(writer, sl.ID, cluster.ID)
+				for _, cl := range sl.Cluster {
+					if MatchItem(cl, clusterid) {
+						kc, err := ovhwrapper.GetKubeconfig(writer, sl.ID, cl.ID)
 						if err != nil {
 							log.Printf("Failed to get kubeconfig: %v", err)
 							return
 						}
 						switch output {
 						case "global":
+							globalconfig.AddContext(kc)
 						case "certs":
+							certpath := path.Join(outpath, sl.SLDetails.Description, cl.Name)
+							err := os.MkdirAll(certpath, 0700)
+							if err != nil {
+								log.Printf("Failed to create output directory: %v", err)
+								continue
+							}
+
+							fmt.Printf("Extracting certificates for %s serviceline's %s cluster to %s...\n",
+								sl.SLDetails.Description, cl.Name, certpath)
+
+							ca, err := base64.StdEncoding.DecodeString(kc.Clusters[0].Cluster.CertificateAuthorityData)
+							if err != nil {
+								log.Fatal("error decoding ca certificate:", err)
+							}
+							err = os.WriteFile(path.Join(certpath, "ca.crt"), ca, 0600)
+							if err != nil {
+								fmt.Printf("Failed to write ca.crt output file: %v", err)
+							}
+
+							crt, err := base64.StdEncoding.DecodeString(kc.Users[0].User.ClientCertificateData)
+							if err != nil {
+								log.Fatal("error decoding user client certificate:", err)
+							}
+							err = os.WriteFile(path.Join(certpath, "client.crt"), crt, 0600)
+							if err != nil {
+								fmt.Printf("Failed to write client.crt output file: %v", err)
+							}
+
+							key, err := base64.StdEncoding.DecodeString(kc.Users[0].User.ClientKeyData)
+							if err != nil {
+								log.Fatal("error decoding user client private key:", err)
+							}
+							err = os.WriteFile(path.Join(certpath, "client.key"), key, 0600)
+							if err != nil {
+								fmt.Printf("Failed to write client.key output file: %v", err)
+							}
 						case "file":
 							fallthrough
 						default:
-							err = ovhwrapper.SaveYaml(kc, sl.SLDetails.Description+"_"+cluster.Name+".yaml")
+							err = ovhwrapper.SaveYaml(kc, sl.SLDetails.Description+"_"+cl.Name+".yaml")
 							if err != nil {
 								log.Printf("Saving Kubeconfig failed: %v", err)
 							}
 						}
 					}
 				}
-
 			}
 		}
 	} else {
 		log.Printf("no service id/name or cluster id/name given\n")
+	}
+
+	if output == "global" {
+		log.Printf("Saving global kubeconfig to %s...\n", path.Join(outpath, "global.yaml"))
+		err = ovhwrapper.SaveYaml(globalconfig, path.Join(outpath, "global.yaml"))
+		if err != nil {
+			log.Printf("Saving global Kubeconfig failed: %v", err)
+		}
 	}
 }
 
@@ -309,5 +408,56 @@ func status(client *ovh.Client, all bool, serviceline, cluster string) {
 			}
 		}
 		return
+	}
+}
+
+func UpdateCluster(reader, writer *ovh.Client, config ovhwrapper.Configuration, serviceid, clusterid string, background, latest, force bool) {
+	var realslid, realclid string
+
+	slids := ovhwrapper.GetServicelines(reader)
+	for _, slid := range slids {
+		sl := ovhwrapper.ServiceLine{
+			ID:        slid,
+			SLDetails: *ovhwrapper.GetOVHServiceline(reader, slid),
+		}
+		if MatchItem(sl, serviceid) {
+			realslid = sl.ID
+			clids, err := ovhwrapper.GetK8SClusterIDs(reader, slid)
+			if err != nil {
+				fmt.Printf("Failed to get cluster IDs: %v\n", err)
+				continue
+			}
+
+			for _, clid := range clids {
+				cl := ovhwrapper.GetK8SCluster(reader, slid, clid)
+				if MatchItem(*cl, clusterid) {
+					realclid = cl.ID
+				}
+			}
+
+		}
+	}
+
+	//err := ovhwrapper.UpdateK8SCluster(writer, realslid, realclid, latest, force)
+	//if err != nil {
+	//	log.Fatalf("Failed to initiate cluster update: %v", err)
+	//}
+
+	if !background {
+		for {
+			client, err := ovhwrapper.CreateReader(config)
+			if err != nil {
+				log.Fatalf("Error creating OVH API Client: %q\n", err)
+			}
+			cl := GetCluster(client, realslid, realclid)
+			if cl != nil {
+				status(client, false, realslid, realclid)
+
+				if cl.Status == "READY" {
+					break
+				}
+				time.Sleep(60 * time.Second)
+			}
+		}
 	}
 }

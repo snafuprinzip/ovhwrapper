@@ -35,7 +35,7 @@ func (c *Configuration) GetPath() string {
 	return c.fpath
 }
 
-func ReadConfiguration() (*Configuration, error) {
+func ReadConfiguration() (Configuration, error) {
 	var config Configuration
 	homedir := os.Getenv("HOME")
 	config.fpath = path.Join(homedir, ".ovhcredentials.conf")
@@ -52,14 +52,14 @@ func ReadConfiguration() (*Configuration, error) {
 				err := LoadYaml(&config, location)
 				if err != nil {
 					log.Printf("Error loading configuration file %s: %v", location, err)
-					return nil, err
+					return config, err
 				}
 				config.fpath = location
 				break
 			}
 		}
 	}
-	return &config, nil
+	return config, nil
 }
 
 func CreateClient() (*ovh.Client, error) {

@@ -33,6 +33,7 @@ import (
 func main() {
 	var reader *ovh.Client
 	var writer *ovh.Client
+	var config ovhwrapper.Configuration
 
 	config, err := ovhwrapper.ReadConfiguration()
 	if err != nil {
@@ -40,12 +41,12 @@ func main() {
 	}
 
 	//client, err := ovhwrapper.CreateClient()
-	reader, err = ovhwrapper.CreateReader(*config)
+	reader, err = ovhwrapper.CreateReader(config)
 	if err != nil {
 		log.Fatalf("Error creating OVH API Reader: %q\n", err)
 	}
 
-	writer, err = ovhwrapper.CreateWriter(*config)
+	writer, err = ovhwrapper.CreateWriter(config)
 	if err != nil {
 		log.Fatalf("Error creating OVH API Writer: %q\n", err)
 	}
@@ -112,6 +113,25 @@ func main() {
 				},
 			},
 			{
+				Name:    "update",
+				Aliases: []string{"u"},
+				Flags: []cli.Flag{
+					&cli.StringFlag{Name: "serviceline", Aliases: []string{"s"}, Usage: "clusters of a given serviceline"},
+					&cli.StringFlag{Name: "cluster", Aliases: []string{"c"}, Usage: "specific cluster of a given serviceline"},
+					&cli.BoolFlag{Name: "force", Aliases: []string{"f"}, Usage: "force update"},
+					&cli.BoolFlag{Name: "latest", Aliases: []string{"l"},
+						Usage: "set strategy to LATEST_PATCH (default is NEXT_MINOR)"},
+					&cli.BoolFlag{Name: "background", Aliases: []string{"b"},
+						Usage: "if not set the update status will be printed in 1 minute intervals until the cluster is READY again, " +
+							"if background is set the program will exit immediately after starting the upgrade"},
+				},
+				Action: func(ctx context.Context, cmd *cli.Command) error {
+					UpdateCluster(reader, writer, config, cmd.String("serviceline"), cmd.String("cluster"),
+						cmd.Bool("latest"), cmd.Bool("force"), cmd.Bool("background"))
+					return nil
+				},
+			},
+			{
 				Name:    "kubeconfig",
 				Aliases: []string{"kc"},
 				Usage:   "kubernetes client configuration",
@@ -126,11 +146,12 @@ func main() {
 							&cli.StringFlag{Name: "serviceline", Aliases: []string{"s"}, Usage: "serviceline id or name"},
 							&cli.StringFlag{Name: "cluster", Aliases: []string{"c"}, Usage: "cluster id or name"},
 							&cli.StringFlag{Name: "output", Aliases: []string{"o"}, Usage: "file, central or certs"},
+							&cli.StringFlag{Name: "path", Aliases: []string{"p"}, Usage: "output path"},
 						},
 						Action: func(ctx context.Context, cmd *cli.Command) error {
 
 							DownloadKubeconfig(reader, writer, cmd.Bool("all"), cmd.String("serviceline"),
-								cmd.String("cluster"), cmd.String("output"))
+								cmd.String("cluster"), cmd.String("output"), cmd.String("path"))
 							return nil
 						},
 					},

@@ -52,8 +52,8 @@ type Users struct {
 // ShortenName returns a shortened version of the given string
 func ShortenName(name string) string {
 	shortname := name
-	shortname = strings.TrimPrefix(shortname, "sl_")
 	shortname = strings.TrimPrefix(shortname, "kubernetes-admin@")
+	shortname = strings.TrimPrefix(shortname, "sl_")
 	shortname = strings.TrimPrefix(shortname, "ovh-k8s-")
 	shortname = strings.TrimPrefix(shortname, "sl-")
 	shortname = strings.TrimPrefix(shortname, "app-plat-")
@@ -122,39 +122,12 @@ func (c *KubeConfig) ListContexts(localConfigPath string) {
 	}
 }
 
-//func (c *KubeConfig) Load(configpath string) error {
-//	srcFile, err := os.ReadFile(configpath)
-//	if err != nil {
-//		log.Printf("Kann kubeconfig %s nicht lesen: %v", configpath, err)
-//		return err
-//	}
-//
-//	err = yaml.Unmarshal(srcFile, &c)
-//	if err != nil {
-//		log.Fatalf("Unmarshal: %v", err)
-//	}
-//	return nil
-//}
-//
-//func (c *KubeConfig) Save(configpath string) {
-//	out, err := yaml.Marshal(&c)
-//	if err != nil {
-//		log.Fatalf("Marshal: %v", err)
-//	}
-//
-//	dir := path.Dir(configpath)
-//	err = os.MkdirAll(dir, 0700)
-//	if err != nil {
-//		log.Fatalf("Fehler beim erstellen des %s Verzeichnisses: %v", dir, err)
-//	}
-//
-//	err = os.WriteFile(configpath, out, 0600)
-//	if err != nil {
-//		log.Fatalf("Kann kubeconfig %s nicht schreiben: %v", configpath, err)
-//	}
-//}
-
 func (c *KubeConfig) AddContext(newConfig KubeConfig) {
+	if len(newConfig.Contexts) == 0 {
+		return
+	}
+
+	newConfig.Contexts[0].Name = ShortenName(newConfig.Contexts[0].Name)
 	if _, conptr := c.GetContext(newConfig.Contexts[0].Name); conptr != nil {
 		log.Printf("Kontext %s existiert bereits in der globalen config und wurde daher nicht hinzugefuegt.",
 			newConfig.Contexts[0].Name)
