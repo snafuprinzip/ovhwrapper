@@ -4,9 +4,9 @@ import (
 	"encoding/base64"
 	"fmt"
 	"github.com/ovh/go-ovh/ovh"
+	"github.com/snafuprinzip/ovhwrapper"
 	"log"
 	"os"
-	"ovhwrapper"
 	"path"
 	"time"
 )
@@ -310,6 +310,8 @@ func DownloadKubeconfig(reader, writer *ovh.Client, all bool, serviceid, cluster
 // or a specific cluster (when -s and -c is set)
 func status(client *ovh.Client, all bool, serviceline, cluster string) {
 	var sls []ovhwrapper.ServiceLine
+	var cl *ovhwrapper.K8SCluster
+	var realslid, realclid string
 	var err error
 
 	if all {
@@ -343,6 +345,7 @@ func status(client *ovh.Client, all bool, serviceline, cluster string) {
 		for _, service := range services {
 			sl := GetServiceline(client, service)
 			if MatchItem(*sl, serviceline) {
+				realslid = sl.ID
 				sl.SLDetails, err = ovhwrapper.GetServicelineDetails(client, sl.ID)
 				if err != nil {
 					break
@@ -354,13 +357,16 @@ func status(client *ovh.Client, all bool, serviceline, cluster string) {
 				}
 
 				var clusterlist []ovhwrapper.K8SCluster
+
 				for _, clid := range clusterids {
 					if cluster != "" { // cluster id is given on the command line
-						cl := ovhwrapper.GetK8SCluster(client, sl.ID, clid)
+						cl = ovhwrapper.GetK8SCluster(client, sl.ID, clid)
 						if MatchItem(*cl, cluster) {
-							cl, err = ovhwrapper.GetK8SClusterDetails(client, cl, sl.ID, cl.ID)
-							if err != nil && cl != nil {
+							realclid = cl.ID
+							cl, err = ovhwrapper.GetK8SClusterDetails(client, cl, realslid, realclid)
+							if err == nil && cl != nil {
 								clusterlist = append(clusterlist, *cl)
+								break
 							}
 						}
 					} else { // all clusters
@@ -370,6 +376,7 @@ func status(client *ovh.Client, all bool, serviceline, cluster string) {
 						}
 					}
 				}
+
 				sl.Cluster = clusterlist
 
 				sls = append(sls, *sl)
@@ -381,7 +388,7 @@ func status(client *ovh.Client, all bool, serviceline, cluster string) {
 			return
 		}
 
-		if len(sls[0.].Cluster) == 0 {
+		if len(sls[0].Cluster) == 0 {
 			log.Printf("No clusters found for the given identifier: %s\n", cluster)
 			return
 		}
@@ -414,11 +421,18 @@ func status(client *ovh.Client, all bool, serviceline, cluster string) {
 func UpdateCluster(reader, writer *ovh.Client, config ovhwrapper.Configuration, serviceid, clusterid string, background, latest, force bool) {
 	var realslid, realclid string
 
+	//fmt.Printf("Serviceline: %s\n"+
+	//	"Cluster ID: %s\n"+
+	//	"Background: %v\n"+
+	//	"Latest: %v\n"+
+	//	"Force: %v\n", serviceid, clusterid, background, latest, force)
+
 	slids := ovhwrapper.GetServicelines(reader)
 	for _, slid := range slids {
+		details := ovhwrapper.GetOVHServiceline(reader, slid)
 		sl := ovhwrapper.ServiceLine{
 			ID:        slid,
-			SLDetails: *ovhwrapper.GetOVHServiceline(reader, slid),
+			SLDetails: *details,
 		}
 		if MatchItem(sl, serviceid) {
 			realslid = sl.ID
@@ -434,23 +448,26 @@ func UpdateCluster(reader, writer *ovh.Client, config ovhwrapper.Configuration, 
 					realclid = cl.ID
 				}
 			}
-
 		}
 	}
 
-	//err := ovhwrapper.UpdateK8SCluster(writer, realslid, realclid, latest, force)
-	//if err != nil {
-	//	log.Fatalf("Failed to initiate cluster update: %v", err)
-	//}
+	err := ovhwrapper.UpdateK8SCluster(writer, realslid, realclid, latest, force)
+	if err != nil {
+		log.Fatalf("Failed to initiate cluster update: %v", err)
+	}
 
 	if !background {
+		time.Sleep(10 * time.Second) // give the update 10 seconds to get triggered
+
 		for {
 			client, err := ovhwrapper.CreateReader(config)
 			if err != nil {
-				log.Fatalf("Error creating OVH API Client: %q\n", err)
+				log.Fatalf("Error creating OVH API Reader: %q\n", err)
 			}
-			cl := GetCluster(client, realslid, realclid)
+
+			cl := ovhwrapper.GetK8SCluster(client, realslid, realclid)
 			if cl != nil {
+				//fmt.Println("\033[2J")  // clear screen
 				status(client, false, realslid, realclid)
 
 				if cl.Status == "READY" {
@@ -459,5 +476,87 @@ func UpdateCluster(reader, writer *ovh.Client, config ovhwrapper.Configuration, 
 				time.Sleep(60 * time.Second)
 			}
 		}
+	}
+}
+
+func ResetKubeconfig(reader, writer *ovh.Client, config ovhwrapper.Configuration, serviceid, clusterid string, background bool) {
+	var realslid, realclid string
+
+	//fmt.Printf("Serviceline: %s\n"+
+	//	"Cluster ID: %s\n"+
+	//	"Background: %v\n", serviceid, clusterid, background)
+
+	slids := ovhwrapper.GetServicelines(reader)
+	for _, slid := range slids {
+		details := ovhwrapper.GetOVHServiceline(reader, slid)
+		sl := ovhwrapper.ServiceLine{
+			ID:        slid,
+			SLDetails: *details,
+		}
+		if MatchItem(sl, serviceid) {
+			realslid = sl.ID
+			clids, err := ovhwrapper.GetK8SClusterIDs(reader, slid)
+			if err != nil {
+				fmt.Printf("Failed to get cluster IDs: %v\n", err)
+				continue
+			}
+
+			for _, clid := range clids {
+				cl := ovhwrapper.GetK8SCluster(reader, slid, clid)
+				if MatchItem(*cl, clusterid) {
+					realclid = cl.ID
+				}
+			}
+		}
+	}
+
+	if realslid == "" {
+		log.Fatalf("Service line not found: %s\n", serviceid)
+	}
+	if realclid == "" {
+		log.Fatalf("Cluster not found: %s\n", clusterid)
+	}
+
+	fmt.Printf("Resetting kubeconfig for serviceline %s (%s) cluster %s(%s)\n", serviceid, realslid, clusterid, realclid)
+	kc, err := ovhwrapper.ResetKubeconfig(writer, realslid, realclid)
+	if err != nil {
+		log.Fatalf("Failed to initiate kubeconfig reset: %v", err)
+	}
+	fmt.Println(kc)
+
+	if !background {
+		time.Sleep(10 * time.Second) // give the reset 10 seconds to get triggered
+
+		for {
+			client, err := ovhwrapper.CreateReader(config)
+			if err != nil {
+				log.Fatalf("Error creating OVH API Reader: %q\n", err)
+			}
+
+			cl := ovhwrapper.GetK8SCluster(client, realslid, realclid)
+			if cl != nil {
+				//fmt.Println("\033[2J")  // clear screen
+				status(client, false, realslid, realclid)
+
+				if cl.Status == "READY" {
+					break
+				}
+				time.Sleep(60 * time.Second)
+			}
+		}
+	}
+}
+
+func Logout(writer *ovh.Client, config ovhwrapper.Configuration) {
+	var result []byte
+	if err := writer.Post("/auth/logout", nil, &result); err != nil {
+		fmt.Printf("Error revoking consumer key: %q\n", err)
+	}
+	fmt.Println(string(result))
+	config.Writer.ConsumerKey = ""
+
+	err := ovhwrapper.SaveYaml(config, config.GetPath())
+	if err != nil {
+		log.Printf("Error saving configuration: %v", err)
 	}
 }

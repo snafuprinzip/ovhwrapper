@@ -74,8 +74,8 @@ func GetOVHServiceline(client *ovh.Client, service string) *OVHServiceLine {
 
 	if err := client.Get("/cloud/project/"+service, serviceline); err != nil {
 		fmt.Printf("Error getting kube service list: %q\n", err)
-		return serviceline
+		return nil
 	}
 
-	return nil
+	return serviceline
 }

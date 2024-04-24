@@ -2,8 +2,8 @@ package main
 
 import (
 	"github.com/ovh/go-ovh/ovh"
+	"github.com/snafuprinzip/ovhwrapper"
 	"log"
-	"ovhwrapper"
 )
 
 // CollectInformation collects the information of all service lines, including their clusters down to the nodes.
