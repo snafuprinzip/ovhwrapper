@@ -418,6 +418,164 @@ func status(client *ovh.Client, all bool, serviceline, cluster string) {
 	}
 }
 
+// describe shows the details of servicelines and their clusters (when only -a is set),
+// a serviceline (when -c is not set), a serviceline and all it's clusters (when -a is set as well)
+// or a specific cluster (when -s and -c is set, including serviceline if -a is set as well)
+func describe(client *ovh.Client, all bool, serviceid, clusterid, output string) {
+	var err error
+	var sls []ovhwrapper.ServiceLine
+
+	// Get flat Serviceline info
+	slids := ovhwrapper.GetServicelines(client) // list of sl ids
+	for _, slid := range slids {
+		sl := ovhwrapper.ServiceLine{ID: slid}
+		sl.SLDetails, err = ovhwrapper.GetServicelineDetails(client, slid)
+		if err != nil {
+			log.Fatalf("Failed to get service lines: %v", err)
+		}
+		sls = append(sls, sl)
+	}
+
+	if serviceid == "" && clusterid == "" { // all servicelines and their clusters
+		for idx := range sls {
+			clusterids, err := ovhwrapper.GetK8SClusterIDs(client, sls[idx].ID)
+			if err != nil {
+				log.Fatalf("Failed to get cluster IDs: %v", err)
+			}
+			var clusterlist []ovhwrapper.K8SCluster
+			for _, clusterid := range clusterids {
+				cluster := CollectCluster(client, sls[idx].ID, clusterid)
+				//fmt.Printf("sl %-2d: %s\t%v\n", idx, clusterid, cluster)
+				if cluster != nil {
+					clusterlist = append(clusterlist, *cluster)
+				}
+			}
+			sls[idx].Cluster = clusterlist
+		}
+
+		// output
+		switch output {
+		case "yaml":
+			fmt.Println(ovhwrapper.ToYaml(sls))
+		case "json":
+			fmt.Println(ovhwrapper.ToJSON(sls))
+		case "text":
+			fallthrough
+		default:
+			for _, sl := range sls {
+				fmt.Println(sl.Details())
+				for _, cluster := range sl.Cluster {
+					fmt.Println(cluster.Details())
+				}
+				fmt.Println()
+			}
+		}
+	} else if serviceid != "" && clusterid == "" { // show all clusters for a specific serviceline
+		var sl ovhwrapper.ServiceLine
+
+		for _, s := range sls {
+			if MatchItem(s, serviceid) {
+				sl = s
+				break
+			}
+		}
+
+		if sl.ID == "" {
+			log.Printf("Service ID not found: %s", serviceid)
+			return
+		}
+
+		if all {
+			clusterids, err := ovhwrapper.GetK8SClusterIDs(client, sl.ID)
+			if err != nil {
+				log.Fatalf("Failed to get cluster IDs: %v", err)
+			}
+
+			var clusterlist []ovhwrapper.K8SCluster
+			for _, clid := range clusterids {
+				cluster := CollectCluster(client, sl.ID, clid)
+				if cluster != nil {
+					clusterlist = append(clusterlist, *cluster)
+				}
+			}
+			sl.Cluster = clusterlist
+		}
+
+		// output
+		switch output {
+		case "yaml":
+			fmt.Println(ovhwrapper.ToYaml(sl))
+		case "json":
+			fmt.Println(ovhwrapper.ToJSON(sl))
+		case "text":
+			fallthrough
+		default:
+			fmt.Println(sl.Details())
+			for _, cluster := range sl.Cluster {
+				fmt.Println(cluster.Details())
+			}
+			fmt.Println()
+		}
+	} else if serviceid != "" && clusterid != "" {
+		var sl ovhwrapper.ServiceLine
+
+		for _, s := range sls {
+			if MatchItem(s, serviceid) {
+				sl = s
+				break
+			}
+		}
+
+		if sl.ID == "" {
+			log.Printf("Service ID not found: %s", serviceid)
+			return
+		}
+
+		clusterids, err := ovhwrapper.GetK8SClusterIDs(client, sl.ID)
+		if err != nil {
+			log.Fatalf("Failed to get cluster IDs: %v", err)
+		}
+
+		var cluster *ovhwrapper.K8SCluster
+		for _, clid := range clusterids {
+			cl := ovhwrapper.GetK8SCluster(client, sl.ID, clid)
+			if cl != nil {
+				if MatchItem(*cl, clusterid) {
+					cluster = CollectCluster(client, sl.ID, cl.ID)
+					break
+				}
+			}
+		}
+
+		// output
+		switch output {
+		case "yaml":
+			if all {
+				fmt.Println(ovhwrapper.ToYaml(sl))
+			} else {
+				fmt.Println(ovhwrapper.ToYaml(cluster))
+			}
+		case "json":
+			if all {
+				fmt.Println(ovhwrapper.ToJSON(sl))
+			} else {
+				fmt.Println(ovhwrapper.ToJSON(cluster))
+			}
+		case "text":
+			fallthrough
+		default:
+			if all {
+				fmt.Println(sl.Details())
+				fmt.Println()
+			}
+			if cluster != nil {
+				fmt.Println(cluster.Details())
+			}
+			fmt.Println()
+		}
+	}
+}
+
 func UpdateCluster(reader, writer *ovh.Client, config ovhwrapper.Configuration, serviceid, clusterid string, background, latest, force bool) {
 	var realslid, realclid string
 

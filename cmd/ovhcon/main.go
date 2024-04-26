@@ -22,13 +22,6 @@ import (
 // kubeconfig reset
 // logout (revoke consumer key)
 
-// options
-//   -a all clusters
-//   -s serviceline
-//   -c cluster
-//   -o outputformat (yaml, certs)
-//   -w wait for READY status
-
 func main() {
 	var reader *ovh.Client
 	var writer *ovh.Client
@@ -70,7 +63,7 @@ func main() {
 		Version:   "v0.1.0",
 		Copyright: "(c) 2024 Michael Leimenmeier",
 		Usage:     "cli tool for the ovh api",
-		UsageText: "ovhcon - cli tool for the ovh managed k8s api",
+		UsageText: "ovhcon <command> [subcommand] [options]",
 		Commands: []*cli.Command{
 			{
 				Name:    "list",
@@ -86,20 +79,9 @@ func main() {
 				},
 			},
 			{
-				Name:    "credentials",
-				Aliases: []string{"cred"},
-				Usage:   "shows the credentials used for api access",
-				Flags: []cli.Flag{
-					&cli.StringFlag{Name: "output", Aliases: []string{"o"}, Usage: "set output format [yaml, json, text]"},
-				},
-				Action: func(ctx context.Context, cmd *cli.Command) error {
-					credentials(reader, writer, cmd.String("output"))
-					return nil
-				},
-			},
-			{
 				Name:    "status",
 				Aliases: []string{"s"},
+				Usage:   "show status of a serviceline or cluster",
 				Flags: []cli.Flag{
 					&cli.BoolFlag{Name: "all", Aliases: []string{"a"}, Usage: "all servicelines and clusters"},
 					&cli.StringFlag{Name: "serviceline", Aliases: []string{"s"}, Usage: "clusters of a given serviceline"},
@@ -111,8 +93,24 @@ func main() {
 				},
 			},
 			{
+				Name:    "describe",
+				Aliases: []string{"d"},
+				Usage:   "show details of a serviceline and or cluster(s)",
+				Flags: []cli.Flag{
+					&cli.BoolFlag{Name: "all", Aliases: []string{"a"}, Usage: "all servicelines and clusters"},
+					&cli.StringFlag{Name: "serviceline", Aliases: []string{"s"}, Usage: "clusters of a given serviceline"},
+					&cli.StringFlag{Name: "cluster", Aliases: []string{"c"}, Usage: "specific cluster of a given serviceline"},
+					&cli.StringFlag{Name: "output", Aliases: []string{"o"}, Usage: "set output format [yaml, json, text]"},
+				},
+				Action: func(ctx context.Context, cmd *cli.Command) error {
+					describe(reader, cmd.Bool("all"), cmd.String("serviceline"), cmd.String("cluster"), cmd.String("output"))
+					return nil
+				},
+			},
+			{
 				Name:    "update",
 				Aliases: []string{"u"},
+				Usage:   "update k8s cluster",
 				Flags: []cli.Flag{
 					&cli.StringFlag{Name: "serviceline", Aliases: []string{"s"}, Usage: "clusters of a given serviceline"},
 					&cli.StringFlag{Name: "cluster", Aliases: []string{"c"}, Usage: "specific cluster of a given serviceline"},
@@ -126,15 +124,6 @@ func main() {
 				Action: func(ctx context.Context, cmd *cli.Command) error {
 					UpdateCluster(reader, writer, config, cmd.String("serviceline"), cmd.String("cluster"),
 						cmd.Bool("latest"), cmd.Bool("force"), cmd.Bool("background"))
-					return nil
-				},
-			},
-			{
-				Name:    "logout",
-				Aliases: []string{"o"},
-				Usage:   "revoke consumer key, next time the command will be run it will create a new consumer key",
-				Action: func(ctx context.Context, cmd *cli.Command) error {
-					Logout(writer, config)
 					return nil
 				},
 			},
@@ -179,6 +168,27 @@ func main() {
 							return nil
 						},
 					},
+				},
+			},
+			{
+				Name:    "credentials",
+				Aliases: []string{"cred"},
+				Usage:   "shows the credentials used for api access",
+				Flags: []cli.Flag{
+					&cli.StringFlag{Name: "output", Aliases: []string{"o"}, Usage: "set output format [yaml, json, text]"},
+				},
+				Action: func(ctx context.Context, cmd *cli.Command) error {
+					credentials(reader, writer, cmd.String("output"))
+					return nil
+				},
+			},
+			{
+				Name:    "logout",
+				Aliases: []string{"o"},
+				Usage:   "revoke consumer key, next time the command will be run it will create a new consumer key",
+				Action: func(ctx context.Context, cmd *cli.Command) error {
+					Logout(writer, config)
+					return nil
 				},
 			},
 		},
