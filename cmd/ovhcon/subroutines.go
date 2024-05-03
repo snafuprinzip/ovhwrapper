@@ -479,6 +479,10 @@ func describe(client *ovh.Client, all bool, serviceid, clusterid, output string)
 						fmt.Println(f.Details())
 						fmt.Println()
 					}
+					for _, p := range cluster.Nodepools {
+						fmt.Println(p.Details())
+						fmt.Println()
+					}
 					fmt.Println("\n-----")
 				}
 				fmt.Println("\n\n")
@@ -540,6 +544,10 @@ func describe(client *ovh.Client, all bool, serviceid, clusterid, output string)
 					fmt.Println(n.Details())
 					f := flavors[n.Flavor]
 					fmt.Println(f.Details())
+					fmt.Println()
+				}
+				for _, p := range cluster.Nodepools {
+					fmt.Println(p.Details())
 					fmt.Println()
 				}
 				fmt.Println("\n-----")
@@ -611,12 +619,19 @@ func describe(client *ovh.Client, all bool, serviceid, clusterid, output string)
 			if cluster != nil {
 				fmt.Println(cluster.Details())
 				fmt.Println(cluster.EtcdUsage.Details())
-				fmt.Println()
-				for _, n := range cluster.Nodes {
-					fmt.Println(n.Details())
-					f := flavors[n.Flavor]
-					fmt.Println(f.Details())
+				if all {
+					fmt.Println("Nodes:")
 					fmt.Println()
+					for _, n := range cluster.Nodes {
+						fmt.Println(n.Details())
+						f := flavors[n.Flavor]
+						fmt.Println(f.Details())
+						fmt.Println()
+					}
+					for _, p := range cluster.Nodepools {
+						fmt.Println(p.Details())
+						fmt.Println()
+					}
 				}
 				fmt.Println("\n-----")
 			}

@@ -35,7 +35,7 @@ type ServiceLine struct {
 
 func (sl ServiceLine) Details() string {
 	return fmt.Sprintf("Project ID: %s\n Project Name: %s\n Description: %s\n Plan Code: %s\n Unleash: %t\n "+
-		"Expiration: %v\n Creation Date: %s\n Order ID: %v\n Access: %s\n Status: %s\n Manual Quota: %t\n IAM: %s\n",
+		"Expiration: %v\n Creation Date: %s\n Order ID: %v\n Access: %s\n Status: %s\n Manual Quota: %t\n IAM:\n%s\n",
 		sl.SLDetails.ProjectID, sl.SLDetails.ProjectName, sl.SLDetails.Description, sl.SLDetails.PlanCode,
 		sl.SLDetails.Unleash, sl.SLDetails.Expiration, sl.SLDetails.CreationDate, sl.SLDetails.OrderID,
 		sl.SLDetails.Access, sl.SLDetails.Status, sl.SLDetails.ManualQuota, sl.SLDetails.Iam.Details())
@@ -47,7 +47,7 @@ func (sl ServiceLine) StatusMsg() string {
 }
 
 func (iam Iam) Details() string {
-	return fmt.Sprintf("ID: %s, URN: %s", iam.ID, iam.Urn)
+	return fmt.Sprintf("  ID: %s\n  URN: %s", iam.ID, iam.Urn)
 }
 
 func GetServicelineDetails(client *ovh.Client, service string) (OVHServiceLine, error) {

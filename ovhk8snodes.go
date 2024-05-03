@@ -193,21 +193,62 @@ func (n K8SNode) StatusMsg(flavor K8SFlavor) string {
 }
 
 func (n K8SNode) Details() string {
-	return fmt.Sprintf("Name: %s\n"+
-		"  ID: %s\n"+
-		"  Serviceline ID: %s\n"+
-		"  Instance ID: %s\n"+
-		"  Nodepool ID: %s\n"+
-		"  Status: %s\n"+
-		"  IsUpToDate: %t\n"+
-		"  Created at: %s\n"+
-		"  Updated at: %s\n"+
-		"  Deployed at: %s",
-		n.Name, n.Id, n.ProjectId, n.InstanceId, n.NodePoolId, n.Status, n.IsUpToDate, n.CreatedAt, n.UpdatedAt,
+	return fmt.Sprintf("Node ID: %s\n"+
+		" Node Name: %s\n"+
+		" Serviceline ID: %s\n"+
+		" Instance ID: %s\n"+
+		" Nodepool ID: %s\n"+
+		" Status: %s\n"+
+		" IsUpToDate: %t\n"+
+		" Created at:  %s\n"+
+		" Updated at:  %s\n"+
+		" Deployed at: %s",
+		n.Id, n.Name, n.ProjectId, n.InstanceId, n.NodePoolId, n.Status, n.IsUpToDate, n.CreatedAt, n.UpdatedAt,
 		n.DeployedAt)
 }
 
 func (f K8SFlavor) Details() string {
-	return fmt.Sprintf("  Flavor: %s\n    category: %s\n    cpu: %d\n    memory: %d\n    gpu: %d",
+	return fmt.Sprintf(" Flavor: %s (category: %s)\n"+
+		"    cpu:    %2d vcpus\n"+
+		"    memory: %2d gb\n"+
+		"    gpu:    %2d",
 		f.Name, f.Category, f.VCPUs, f.RAM, f.GPUs)
+}
+
+func (p K8SNodepool) Details() string {
+	return fmt.Sprintf("Nodepool ID: %s\n"+
+		" Nodepool Name: %s\n"+
+		" Serviceline ID: %s\n"+
+		" Status: %s\n"+
+		" Size Status: %s\n"+
+		" Flavor: %s\n"+
+		" Monthly billed: %t\n"+
+		" Anti Affinity: %v\n"+
+		" Created at: %s\n"+
+		" Updated at: %s\n"+
+		" Nodes:\n"+
+		"  desired: %d\n"+
+		"  min: %d\n"+
+		"  max: %d\n"+
+		"  current: %d\n"+
+		"  available: %d\n"+
+		"  up to date: %d\n"+
+		" Autoscale: %v\n"+
+		" Autoscaling:\n"+
+		"  Scale down utilization threshold: %f\n"+
+		"  Scale down unneeded time: %d seconds\n"+
+		"  Scale down unready time: %d seconds\n"+
+		" Template:\n"+
+		"  Metadata:\n"+
+		"   Labels: %v\n"+
+		"   Annotations: %v\n"+
+		"   Finalizers: %v\n"+
+		"  Spec:\n"+
+		"   Unschedulable: %t\n"+
+		"   Taints: %v\n",
+		p.Id, p.Name, p.ProjectId, p.Status, p.SizeStatus, p.Flavor, p.MonthlyBilled, p.AntiAffinity, p.CreatedAt,
+		p.UpdatedAt, p.DesiredNodes, p.MinNodes, p.MaxNodes, p.CurrentNodes, p.AvailableNodes, p.UpToDateNodes,
+		p.Autoscale, p.Autoscaling.ScaleDownUtilizationThreshold, p.Autoscaling.ScaleDownUnneededTimeSeconds,
+		p.Autoscaling.ScaleDownUnreadyTimeSeconds, p.Template.Metadata.Labels, p.Template.Metadata.Annotations,
+		p.Template.Metadata.Finalizers, p.Template.Spec.Unschedulable, p.Template.Spec.Taints)
 }

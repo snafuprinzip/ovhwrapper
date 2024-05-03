@@ -76,38 +76,55 @@ type PrivateNetworkConfiguration struct {
 }
 
 func (cluster K8SCluster) Details() string {
-	return fmt.Sprintf("Cluster ID: %s\n Region: %s\n Name: %s\n URL: %s\n Nodes URL: %s\n Version: %s\n "+
-		"Next Upgrade Versions: %v\n Kube Proxy Mode: %s\n Customization: %s\n Status: %s\n Update Policy: %s\n "+
-		"Is Up To Date: %v\n Control Plane Is Up To Date: %v\n Private Network ID: %s\n Nodes Subnet ID: %s\n "+
-		"Private Network Configuration: %s\n Created At: %s\n Updated At: %s\n Audit Logs Subscribed: %v",
-		cluster.ID, cluster.Region, cluster.Name, cluster.URL, cluster.NodesURL, cluster.Version,
+	return fmt.Sprintf("Cluster ID: %s\n"+
+		" Cluster Name: %s\n"+
+		" Region: %s\n"+
+		" URL: %s\n"+
+		" Nodes URL: %s\n"+
+		" Version: %s\n"+
+		" Next Upgrade Versions: %v\n"+
+		" Kube Proxy Mode: %s\n"+
+		"%s\n"+
+		" Status: %s\n"+
+		" Update Policy: %s\n"+
+		" Is Up To Date: %v\n"+
+		" Control Plane Is Up To Date: %v\n"+
+		" Nodes Subnet ID: %s\n"+
+		" Private Network ID: %s\n"+
+		" Private Network Configuration:\n"+
+		"%s\n"+
+		" Created At: %s\n"+
+		" Updated At: %s\n"+
+		" Audit Logs Subscribed: %v",
+		cluster.ID, cluster.Name, cluster.Region, cluster.URL, cluster.NodesURL, cluster.Version,
 		cluster.NextUpgradeVersions, cluster.KubeProxyMode, cluster.Customization.Details(), cluster.Status,
-		cluster.UpdatePolicy, cluster.IsUpToDate, cluster.ControlPlaneIsUpToDate, cluster.PrivateNetworkID,
-		cluster.NodesSubnetID, cluster.PrivateNetworkConfiguration.Details(), cluster.CreatedAt, cluster.UpdatedAt,
+		cluster.UpdatePolicy, cluster.IsUpToDate, cluster.ControlPlaneIsUpToDate, cluster.NodesSubnetID,
+		cluster.PrivateNetworkID, cluster.PrivateNetworkConfiguration.Details(), cluster.CreatedAt, cluster.UpdatedAt,
 		cluster.AuditLogsSubscribed)
 }
 
 func (ap AdmissionPlugins) Details() string {
-	return fmt.Sprintf("Enabled: %v, Disabled: %v", ap.Enabled, ap.Disabled)
+	return fmt.Sprintf("   Enabled:  %v\n"+
+		"   Disabled: %v", ap.Enabled, ap.Disabled)
 }
 
 func (as APIServer) Details() string {
-	return fmt.Sprintf("Admission Plugins: %s\n",
+	return fmt.Sprintf("  Admission Plugins:\n%s",
 		as.AdmissionPlugins.Details())
 }
 
 func (c Customization) Details() string {
-	return fmt.Sprintf("API Server Admission Plugins Enabled: %v, Disabled: %v",
-		c.APIServer.AdmissionPlugins.Enabled, c.APIServer.AdmissionPlugins.Disabled)
+	return fmt.Sprintf(" Customization:\n%s", c.APIServer.Details())
 }
 
 func (pnc PrivateNetworkConfiguration) Details() string {
-	return fmt.Sprintf("Private Network Routing as Default: %v, Default Vrack Gateway: %s",
+	return fmt.Sprintf("  Private Network Routing as Default: %v\n"+
+		"  Default Vrack Gateway: %s",
 		pnc.PrivateNetworkRoutingAsDefault, pnc.DefaultVrackGateway)
 }
 
 func (etcd K8SEtcd) Details() string {
-	return fmt.Sprintf("etcd: %d%% (%d of %d)", etcd.Usage*100/etcd.Quota, etcd.Usage, etcd.Quota)
+	return fmt.Sprintf(" etcd usage: %d%% (%d of %d)", etcd.Usage*100/etcd.Quota, etcd.Usage, etcd.Quota)
 }
 
 func GetK8SClusterIDs(client *ovh.Client, service string) ([]string, error) {

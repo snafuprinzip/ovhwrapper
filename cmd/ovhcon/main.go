@@ -97,9 +97,9 @@ func main() {
 				Aliases: []string{"d"},
 				Usage:   "show details of a serviceline and or cluster(s)",
 				Flags: []cli.Flag{
-					&cli.BoolFlag{Name: "all", Aliases: []string{"a"}, Usage: "all servicelines and clusters"},
-					&cli.StringFlag{Name: "serviceline", Aliases: []string{"s"}, Usage: "clusters of a given serviceline"},
-					&cli.StringFlag{Name: "cluster", Aliases: []string{"c"}, Usage: "specific cluster of a given serviceline"},
+					&cli.BoolFlag{Name: "all", Aliases: []string{"a"}, Usage: "all servicelines and clusters, including nodes and nodepools"},
+					&cli.StringFlag{Name: "serviceline", Aliases: []string{"s"}, Usage: "describe a serviceline"},
+					&cli.StringFlag{Name: "cluster", Aliases: []string{"c"}, Usage: "describe a cluster of a given serviceline"},
 					&cli.StringFlag{Name: "output", Aliases: []string{"o"}, Usage: "set output format [yaml, json, text]"},
 				},
 				Action: func(ctx context.Context, cmd *cli.Command) error {
