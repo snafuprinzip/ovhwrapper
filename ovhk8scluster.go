@@ -79,7 +79,7 @@ func (cluster K8SCluster) Details() string {
 	return fmt.Sprintf("Cluster ID: %s\n Region: %s\n Name: %s\n URL: %s\n Nodes URL: %s\n Version: %s\n "+
 		"Next Upgrade Versions: %v\n Kube Proxy Mode: %s\n Customization: %s\n Status: %s\n Update Policy: %s\n "+
 		"Is Up To Date: %v\n Control Plane Is Up To Date: %v\n Private Network ID: %s\n Nodes Subnet ID: %s\n "+
-		"Private Network Configuration: %s\n Created At: %s\n Updated At: %s\n Audit Logs Subscribed: %v\n",
+		"Private Network Configuration: %s\n Created At: %s\n Updated At: %s\n Audit Logs Subscribed: %v",
 		cluster.ID, cluster.Region, cluster.Name, cluster.URL, cluster.NodesURL, cluster.Version,
 		cluster.NextUpgradeVersions, cluster.KubeProxyMode, cluster.Customization.Details(), cluster.Status,
 		cluster.UpdatePolicy, cluster.IsUpToDate, cluster.ControlPlaneIsUpToDate, cluster.PrivateNetworkID,
@@ -104,6 +104,10 @@ func (c Customization) Details() string {
 func (pnc PrivateNetworkConfiguration) Details() string {
 	return fmt.Sprintf("Private Network Routing as Default: %v, Default Vrack Gateway: %s",
 		pnc.PrivateNetworkRoutingAsDefault, pnc.DefaultVrackGateway)
+}
+
+func (etcd K8SEtcd) Details() string {
+	return fmt.Sprintf("etcd: %d%% (%d of %d)", etcd.Usage*100/etcd.Quota, etcd.Usage, etcd.Quota)
 }
 
 func GetK8SClusterIDs(client *ovh.Client, service string) ([]string, error) {

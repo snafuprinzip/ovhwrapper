@@ -191,3 +191,23 @@ func (n K8SNode) StatusMsg(flavor K8SFlavor) string {
 	return fmt.Sprintf("    Node: %s\t[%-10s]\t%s (%2d vcpus; %3d GB memory) - %s (up2date: %-5v) ",
 		n.Name, n.Status, flavor.Name, flavor.VCPUs, flavor.RAM, n.Version, n.IsUpToDate)
 }
+
+func (n K8SNode) Details() string {
+	return fmt.Sprintf("Name: %s\n"+
+		"  ID: %s\n"+
+		"  Serviceline ID: %s\n"+
+		"  Instance ID: %s\n"+
+		"  Nodepool ID: %s\n"+
+		"  Status: %s\n"+
+		"  IsUpToDate: %t\n"+
+		"  Created at: %s\n"+
+		"  Updated at: %s\n"+
+		"  Deployed at: %s",
+		n.Name, n.Id, n.ProjectId, n.InstanceId, n.NodePoolId, n.Status, n.IsUpToDate, n.CreatedAt, n.UpdatedAt,
+		n.DeployedAt)
+}
+
+func (f K8SFlavor) Details() string {
+	return fmt.Sprintf("  Flavor: %s\n    category: %s\n    cpu: %d\n    memory: %d\n    gpu: %d",
+		f.Name, f.Category, f.VCPUs, f.RAM, f.GPUs)
+}

@@ -462,12 +462,26 @@ func describe(client *ovh.Client, all bool, serviceid, clusterid, output string)
 		case "text":
 			fallthrough
 		default:
+			flavors, err := ovhwrapper.GetK8SFlavors(client, sls[0].ID, sls[0].Cluster[0].ID)
+			if err != nil {
+				log.Printf("Error getting available flavors: %q\n", err)
+			}
+
 			for _, sl := range sls {
 				fmt.Println(sl.Details())
 				for _, cluster := range sl.Cluster {
 					fmt.Println(cluster.Details())
+					fmt.Println(cluster.EtcdUsage.Details())
+					fmt.Println()
+					for _, n := range cluster.Nodes {
+						fmt.Println(n.Details())
+						f := flavors[n.Flavor]
+						fmt.Println(f.Details())
+						fmt.Println()
+					}
+					fmt.Println("\n-----")
 				}
-				fmt.Println()
+				fmt.Println("\n\n")
 			}
 		}
 	} else if serviceid != "" && clusterid == "" { // show all clusters for a specific serviceline
@@ -502,6 +516,13 @@ func describe(client *ovh.Client, all bool, serviceid, clusterid, output string)
 		}
 
 		// output
+		var flavors ovhwrapper.K8SFlavors
+		if sl.Cluster != nil {
+			flavors, err = ovhwrapper.GetK8SFlavors(client, sl.ID, sl.Cluster[0].ID)
+			if err != nil {
+				log.Printf("Error getting available flavors: %q\n", err)
+			}
+		}
 		switch output {
 		case "yaml":
 			fmt.Println(ovhwrapper.ToYaml(sl))
@@ -513,8 +534,17 @@ func describe(client *ovh.Client, all bool, serviceid, clusterid, output string)
 			fmt.Println(sl.Details())
 			for _, cluster := range sl.Cluster {
 				fmt.Println(cluster.Details())
+				fmt.Println(cluster.EtcdUsage.Details())
+				fmt.Println()
+				for _, n := range cluster.Nodes {
+					fmt.Println(n.Details())
+					f := flavors[n.Flavor]
+					fmt.Println(f.Details())
+					fmt.Println()
+				}
+				fmt.Println("\n-----")
 			}
-			fmt.Println()
+			//fmt.Println()
 		}
 	} else if serviceid != "" && clusterid != "" {
 		var sl ovhwrapper.ServiceLine
@@ -564,14 +594,33 @@ func describe(client *ovh.Client, all bool, serviceid, clusterid, output string)
 		case "text":
 			fallthrough
 		default:
+			if cluster == nil {
+				log.Printf("Cluster ID not found for service %s", serviceid)
+				return
+			}
+
+			flavors, err := ovhwrapper.GetK8SFlavors(client, sl.ID, cluster.ID)
+			if err != nil {
+				log.Printf("Error getting available flavors: %q\n", err)
+			}
+
 			if all {
 				fmt.Println(sl.Details())
 				fmt.Println()
 			}
 			if cluster != nil {
 				fmt.Println(cluster.Details())
+				fmt.Println(cluster.EtcdUsage.Details())
+				fmt.Println()
+				for _, n := range cluster.Nodes {
+					fmt.Println(n.Details())
+					f := flavors[n.Flavor]
+					fmt.Println(f.Details())
+					fmt.Println()
+				}
+				fmt.Println("\n-----")
 			}
-			fmt.Println()
+			//fmt.Println()
 		}
 	}
 }
