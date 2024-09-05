@@ -11,6 +11,20 @@ import (
 	"time"
 )
 
+type Inventory struct {
+	Clustergroups []Clustergroup `yaml:"clustergroups"`
+}
+
+type Clustergroup struct {
+	Name     string      `yaml:"name"`
+	Projects []CGProject `yaml:"servicelines"`
+}
+
+type CGProject struct {
+	Name     string   `yaml:"name"`
+	Clusters []string `yaml:"clusters"`
+}
+
 // credentials returns information about the reader and writer accounts in different formats (yaml, json or text)
 func credentials(reader, writer *ovh.Client, format string) {
 	rcred, err := ovhwrapper.GetCredential(reader)
@@ -638,6 +652,10 @@ func describe(client *ovh.Client, all bool, serviceid, clusterid, output string)
 			//fmt.Println()
 		}
 	}
+}
+
+func UpdateClusterGroup(reader, writer *ovh.Client, config ovhwrapper.Configuration, clustergroup, inventory string, background, latest, force bool) {
+
 }
 
 func UpdateCluster(reader, writer *ovh.Client, config ovhwrapper.Configuration, serviceid, clusterid string, background, latest, force bool) {

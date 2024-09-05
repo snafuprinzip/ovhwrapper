@@ -17,6 +17,7 @@ import (
 // show cluster status
 // show api credentials
 // update cluster
+// update clustergroup
 // kubeconfig get
 // kubeconfig update
 // kubeconfig reset
@@ -110,21 +111,48 @@ func main() {
 			{
 				Name:    "update",
 				Aliases: []string{"u"},
-				Usage:   "update k8s cluster",
-				Flags: []cli.Flag{
-					&cli.StringFlag{Name: "serviceline", Aliases: []string{"s"}, Usage: "clusters of a given serviceline"},
-					&cli.StringFlag{Name: "cluster", Aliases: []string{"c"}, Usage: "specific cluster of a given serviceline"},
-					&cli.BoolFlag{Name: "force", Aliases: []string{"f"}, Usage: "force update"},
-					&cli.BoolFlag{Name: "latest", Aliases: []string{"l"},
-						Usage: "set strategy to LATEST_PATCH (default is NEXT_MINOR)"},
-					&cli.BoolFlag{Name: "background", Aliases: []string{"b"},
-						Usage: "if not set the update status will be printed in 1 minute intervals until the cluster is READY again, " +
-							"if background is set the program will exit immediately after starting the upgrade"},
-				},
-				Action: func(ctx context.Context, cmd *cli.Command) error {
-					UpdateCluster(reader, writer, config, cmd.String("serviceline"), cmd.String("cluster"),
-						cmd.Bool("latest"), cmd.Bool("force"), cmd.Bool("background"))
-					return nil
+				Usage:   "update kubernetes version",
+				Commands: []*cli.Command{
+					{
+						Name:    "cluster",
+						Aliases: []string{"c"},
+						Usage:   "update a single cluster",
+						Flags: []cli.Flag{
+							&cli.StringFlag{Name: "serviceline", Aliases: []string{"s"}, Usage: "clusters of a given serviceline"},
+							&cli.StringFlag{Name: "cluster", Aliases: []string{"c"}, Usage: "specific cluster of a given serviceline"},
+							&cli.BoolFlag{Name: "force", Aliases: []string{"f"}, Usage: "force update"},
+							&cli.BoolFlag{Name: "latest", Aliases: []string{"l"},
+								Usage: "set strategy to LATEST_PATCH (default is NEXT_MINOR)"},
+							&cli.BoolFlag{Name: "background", Aliases: []string{"b"},
+								Usage: "if not set the update status will be printed in 1 minute intervals until the cluster is READY again, " +
+									"if background is set the program will exit immediately after starting the upgrade"},
+						},
+						Action: func(ctx context.Context, cmd *cli.Command) error {
+							UpdateCluster(reader, writer, config, cmd.String("serviceline"), cmd.String("cluster"),
+								cmd.Bool("background"), cmd.Bool("latest"), cmd.Bool("force"))
+							return nil
+						},
+					},
+					{
+						Name:    "group",
+						Aliases: []string{"g"},
+						Usage:   "update a group of clusters",
+						Flags: []cli.Flag{
+							&cli.StringFlag{Name: "clustergroup", Aliases: []string{"s"}, Usage: "name of a group of clusters"},
+							&cli.StringFlag{Name: "inventory", Aliases: []string{"i"}, Usage: "inventory file"},
+							&cli.BoolFlag{Name: "force", Aliases: []string{"f"}, Usage: "force update"},
+							&cli.BoolFlag{Name: "latest", Aliases: []string{"l"},
+								Usage: "set strategy to LATEST_PATCH (default is NEXT_MINOR)"},
+							&cli.BoolFlag{Name: "background", Aliases: []string{"b"},
+								Usage: "if not set the cluster status will be printed in 1 minute intervals until the clusters all clusters are READY again, " +
+									"if background is set the program will exit immediately after starting the upgrades"},
+						},
+						Action: func(ctx context.Context, cmd *cli.Command) error {
+							UpdateClusterGroup(reader, writer, config, cmd.String("clustergroup"), cmd.String("inventory"),
+								cmd.Bool("background"), cmd.Bool("latest"), cmd.Bool("force"))
+							return nil
+						},
+					},
 				},
 			},
 			{
