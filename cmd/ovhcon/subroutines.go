@@ -3,15 +3,16 @@ package main
 import (
 	"encoding/base64"
 	"fmt"
-	"github.com/ovh/go-ovh/ovh"
-	"github.com/snafuprinzip/ovhwrapper"
-	"gopkg.in/yaml.v3"
 	"log"
 	"math/rand"
 	"os"
 	"path"
 	"sync"
 	"time"
+
+	"github.com/ovh/go-ovh/ovh"
+	"github.com/snafuprinzip/ovhwrapper"
+	"gopkg.in/yaml.v3"
 )
 
 type Inventory struct {
@@ -504,13 +505,13 @@ func statusString(client *ovh.Client, serviceline, cluster string) string {
 
 		for _, sl := range sls {
 			if MatchItem(sl, serviceline) {
-				s += fmt.Sprintf(sl.StatusMsg() + "\n")
+				s += sl.StatusMsg() + "\n"
 				for _, cl := range sl.Cluster {
 					if cluster == "" || MatchItem(cl, cluster) {
-						s += fmt.Sprintf(cl.StatusMsg() + "\n")
+						s += cl.StatusMsg() + "\n"
 						for _, n := range cl.Nodes {
 							f := flavors[n.Flavor]
-							s += fmt.Sprintf(n.StatusMsg(f) + "\n")
+							s += n.StatusMsg(f) + "\n"
 						}
 						s += "\n"
 						return s
@@ -856,7 +857,7 @@ func UpdateClusterGroup(reader, writer *ovh.Client, config ovhwrapper.Configurat
 	fmt.Printf("\n%d clusters in group %s updated:\n\n", count, clustergroup)
 
 	for result := range status {
-		fmt.Println(result + "\n")
+		fmt.Println(result)
 	}
 }
 
