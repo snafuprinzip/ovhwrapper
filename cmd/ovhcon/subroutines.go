@@ -5,9 +5,12 @@ import (
 	"fmt"
 	"github.com/ovh/go-ovh/ovh"
 	"github.com/snafuprinzip/ovhwrapper"
+	"gopkg.in/yaml.v3"
 	"log"
+	"math/rand"
 	"os"
 	"path"
+	"sync"
 	"time"
 )
 
@@ -432,6 +435,93 @@ func status(client *ovh.Client, all bool, serviceline, cluster string) {
 	}
 }
 
+// statusString returns the current status of a specific cluster
+func statusString(client *ovh.Client, serviceline, cluster string) string {
+	var sls []ovhwrapper.ServiceLine
+	var cl *ovhwrapper.K8SCluster
+	var s string
+	var realslid, realclid string
+	var err error
+
+	if serviceline != "" { // list serviceline and it's clusters
+		services := ovhwrapper.GetServicelines(client)
+		for _, service := range services {
+			sl := GetServiceline(client, service)
+			if MatchItem(*sl, serviceline) {
+				realslid = sl.ID
+				sl.SLDetails, err = ovhwrapper.GetServicelineDetails(client, sl.ID)
+				if err != nil {
+					break
+				}
+
+				clusterids, err := ovhwrapper.GetK8SClusterIDs(client, sl.ID)
+				if err != nil {
+					log.Fatalf("Failed to get cluster IDs: %v", err)
+				}
+
+				var clusterlist []ovhwrapper.K8SCluster
+
+				for _, clid := range clusterids {
+					if cluster != "" { // cluster id is given on the command line
+						cl = ovhwrapper.GetK8SCluster(client, sl.ID, clid)
+						if MatchItem(*cl, cluster) {
+							realclid = cl.ID
+							cl, err = ovhwrapper.GetK8SClusterDetails(client, cl, realslid, realclid)
+							if err == nil && cl != nil {
+								clusterlist = append(clusterlist, *cl)
+								break
+							}
+						}
+					} else { // all clusters
+						cl := CollectCluster(client, sl.ID, clid)
+						if cl != nil {
+							clusterlist = append(clusterlist, *cl)
+						}
+					}
+				}
+
+				sl.Cluster = clusterlist
+
+				sls = append(sls, *sl)
+			}
+		}
+
+		if len(sls) == 0 {
+			log.Printf("No servicelines found for the given identifier: %s\n", serviceline)
+			return ""
+		}
+
+		if len(sls[0].Cluster) == 0 {
+			log.Printf("No clusters found for the given identifier: %s\n", cluster)
+			return ""
+		}
+
+		flavors, err := ovhwrapper.GetK8SFlavors(client, sls[0].ID, sls[0].Cluster[0].ID)
+		if err != nil {
+			log.Printf("Error getting available flavors: %q\n", err)
+			return ""
+		}
+
+		for _, sl := range sls {
+			if MatchItem(sl, serviceline) {
+				s += fmt.Sprintf(sl.StatusMsg() + "\n")
+				for _, cl := range sl.Cluster {
+					if cluster == "" || MatchItem(cl, cluster) {
+						s += fmt.Sprintf(cl.StatusMsg() + "\n")
+						for _, n := range cl.Nodes {
+							f := flavors[n.Flavor]
+							s += fmt.Sprintf(n.StatusMsg(f) + "\n")
+						}
+						s += "\n"
+					}
+				}
+			}
+		}
+		return ""
+	}
+	return s
+}
+
 // describe shows the details of servicelines and their clusters (when only -a is set),
 // a serviceline (when -c is not set), a serviceline and all it's clusters (when -a is set as well)
 // or a specific cluster (when -s and -c is set, including serviceline if -a is set as well)
@@ -654,12 +744,124 @@ func describe(client *ovh.Client, all bool, serviceid, clusterid, output string)
 	}
 }
 
-func UpdateClusterGroup(reader, writer *ovh.Client, config ovhwrapper.Configuration, clustergroup, inventory string, background, latest, force bool) {
+func readInventory(reader *ovh.Client, config ovhwrapper.Configuration, inventory string) Inventory {
+	if inventory == "" {
+		// check if local inventory file "./clustergroups.yaml" exists
+		if fileExists("./clustergroups.yaml") {
+			inventory = "./clustergroups.yaml"
+		} else if fileExists("/etc/k8s/clustergroups.yml") {
+			inventory = "/etc/k8s/clustergroups.yml"
+		} else {
+			log.Fatalf("No inventory file found. Please specify one with the -i flag.")
+		}
+	} else {
+		if !fileExists(inventory) {
+			log.Fatalf("Inventory file %s not found", inventory)
+		}
+	}
 
+	// open inventory file
+	inventoryString, err := os.ReadFile(inventory)
+	if err != nil {
+		log.Fatalf("Failed to open inventory file %s: %v", inventory, err)
+	}
+
+	// read file and convert yaml to Inventory struct
+	var inv Inventory
+	err = yaml.Unmarshal(inventoryString, &inv)
+	if err != nil {
+		log.Fatalf("Failed to parse inventory file %s: %v", inventory, err)
+	}
+	return inv
+}
+
+func UpdateClusterGroup(reader, writer *ovh.Client, config ovhwrapper.Configuration, clustergroup, inventory string, background, latest, force bool) {
+	var wg sync.WaitGroup
+	var status chan string
+
+	// read inventory file
+	inv := readInventory(reader, config, inventory)
+	fmt.Printf("%s\n", inv)
+
+	// count number of clusters to update
+	var count int
+	for _, cg := range inv.Clustergroups {
+		if cg.Name == clustergroup {
+			for _, project := range cg.Projects {
+				count += len(project.Clusters)
+			}
+		}
+		break
+	}
+
+	// create buffered channel
+	status = make(chan string, count)
+
+	for _, cg := range inv.Clustergroups {
+		// find selected cluster group
+		if cg.Name == clustergroup {
+			// every service line in cluster group
+			for _, project := range cg.Projects {
+				// every cluster in service line
+				for _, clustername := range project.Clusters {
+					realslid := ""
+					realclid := ""
+
+					// determine project and cluster IDs
+					slids := ovhwrapper.GetServicelines(reader)
+					for _, slid := range slids {
+						details := ovhwrapper.GetOVHServiceline(reader, slid)
+						sl := ovhwrapper.ServiceLine{
+							ID:        slid,
+							SLDetails: *details,
+						}
+						if MatchItem(sl, project.Name) {
+							realslid = sl.ID
+							clids, err := ovhwrapper.GetK8SClusterIDs(reader, slid)
+							if err != nil {
+								fmt.Printf("Failed to get cluster IDs: %v\n", err)
+								continue
+							}
+
+							for _, clid := range clids {
+								cl := ovhwrapper.GetK8SCluster(reader, slid, clid)
+								if MatchItem(*cl, clustername) {
+									realclid = cl.ID
+								}
+							}
+						}
+					}
+
+					wg.Add(1)
+					go func(wg *sync.WaitGroup, slid, clid string) {
+						defer wg.Done()
+						err := ovhwrapper.UpdateK8SCluster(writer, realslid, realclid, latest, force)
+						if err != nil {
+							log.Fatalf("Failed to initiate cluster update: %v", err)
+						}
+						status <- MockCheckClusterUpdate(reader, writer, config, realslid, realclid)
+					}(&wg, realslid, realclid)
+
+				} // cluster
+			} // project
+			break
+		} // cluster group
+	}
+	wg.Wait()
+	fmt.Printf("All clusters in group %s updated!\n\n", clustergroup)
+	for result := range status {
+		fmt.Println(result + "\n")
+	}
+}
+
+func MockCheckClusterUpdate(reader, writer *ovh.Client, config ovhwrapper.Configuration, realslid, realclid string) string {
+	time.Sleep(time.Second * time.Duration(rand.Intn(60)))
+	return statusString(reader, realslid, realclid)
 }
 
 func UpdateCluster(reader, writer *ovh.Client, config ovhwrapper.Configuration, serviceid, clusterid string, background, latest, force bool) {
 	var realslid, realclid string
+	var curStatus, prevStatus string
 
 	//fmt.Printf("Serviceline: %s\n"+
 	//	"Cluster ID: %s\n"+
@@ -708,8 +910,14 @@ func UpdateCluster(reader, writer *ovh.Client, config ovhwrapper.Configuration, 
 			cl := ovhwrapper.GetK8SCluster(client, realslid, realclid)
 			if cl != nil {
 				//fmt.Println("\033[2J")  // clear screen
-				status(client, false, realslid, realclid)
+				curStatus = statusString(client, realslid, realclid)
+				// show status if status has changed since last check
+				if curStatus != prevStatus {
+					fmt.Println(curStatus)
+					prevStatus = curStatus
+				}
 
+				// end update loop if cluster is in ready state
 				if cl.Status == "READY" {
 					break
 				}
@@ -799,4 +1007,18 @@ func Logout(writer *ovh.Client, config ovhwrapper.Configuration) {
 	if err != nil {
 		log.Printf("Error saving configuration: %v", err)
 	}
+}
+
+func (i Inventory) String() string {
+	var s string
+	for _, cg := range i.Clustergroups {
+		s += fmt.Sprintf("%s\n", cg.Name)
+		for _, sl := range cg.Projects {
+			s += fmt.Sprintf("  %s\n", sl.Name)
+			for _, cl := range sl.Clusters {
+				s += fmt.Sprintf("    %s\n", cl)
+			}
+		}
+	}
+	return s
 }

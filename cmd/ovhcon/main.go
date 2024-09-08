@@ -9,6 +9,10 @@ import (
 	"os"
 )
 
+// global command options
+var debug bool
+var verbose bool
+
 /********************************************************************
  *** Main Program Functions                                       ***
  ********************************************************************/
@@ -59,12 +63,32 @@ func main() {
 		os.Exit(0)
 	}
 
+	globalFlags := []cli.Flag{
+		&cli.BoolFlag{
+			Name:  "debug",
+			Usage: "enable debug output",
+			Action: func(_ context.Context, cmd *cli.Command, b bool) error {
+				debug = true
+				return nil
+			},
+		},
+		&cli.BoolFlag{
+			Name:  "verbose",
+			Usage: "be more verbose",
+			Action: func(_ context.Context, command *cli.Command, b bool) error {
+				verbose = true
+				return nil
+			},
+		},
+	}
+
 	cmd := &cli.Command{
 		Name:      "ovhcon",
 		Version:   "v0.1.0",
 		Copyright: "(c) 2024 Michael Leimenmeier",
 		Usage:     "cli tool for the ovh api",
 		UsageText: "ovhcon <command> [subcommand] [options]",
+		Flags:     globalFlags,
 		Commands: []*cli.Command{
 			{
 				Name:    "list",

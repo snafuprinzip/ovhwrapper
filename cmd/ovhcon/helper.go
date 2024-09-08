@@ -4,6 +4,7 @@ import (
 	"github.com/ovh/go-ovh/ovh"
 	"github.com/snafuprinzip/ovhwrapper"
 	"log"
+	"os"
 )
 
 // CollectInformation collects the information of all service lines, including their clusters down to the nodes.
@@ -91,4 +92,13 @@ func MatchItem[T ovhwrapper.ServiceLine | ovhwrapper.K8SCluster](object T, ident
 		}
 	}
 	return match
+}
+
+// fileExists returns true if a file exists, false if not
+func fileExists(filename string) bool {
+	_, err := os.Stat(filename)
+	if os.IsNotExist(err) {
+		return false
+	}
+	return err == nil
 }
