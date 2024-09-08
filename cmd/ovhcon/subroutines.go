@@ -513,6 +513,7 @@ func statusString(client *ovh.Client, serviceline, cluster string) string {
 							s += fmt.Sprintf(n.StatusMsg(f) + "\n")
 						}
 						s += "\n"
+						return s
 					}
 				}
 			}
@@ -775,7 +776,7 @@ func readInventory(reader *ovh.Client, config ovhwrapper.Configuration, inventor
 	return inv
 }
 
-func UpdateClusterGroup(reader, writer *ovh.Client, config ovhwrapper.Configuration, clustergroup, inventory string, background, latest, force bool) {
+func UpdateClusterGroup(reader, writer *ovh.Client, config ovhwrapper.Configuration, clustergroup, inventory string, latest, force bool) {
 	var wg sync.WaitGroup
 	var status chan string
 
@@ -790,12 +791,13 @@ func UpdateClusterGroup(reader, writer *ovh.Client, config ovhwrapper.Configurat
 			for _, project := range cg.Projects {
 				count += len(project.Clusters)
 			}
+			break
 		}
-		break
 	}
 
 	// create buffered channel
 	status = make(chan string, count)
+	fmt.Printf("Updating %d clusters in group %s\n", count, clustergroup)
 
 	for _, cg := range inv.Clustergroups {
 		// find selected cluster group
@@ -835,11 +837,13 @@ func UpdateClusterGroup(reader, writer *ovh.Client, config ovhwrapper.Configurat
 					wg.Add(1)
 					go func(wg *sync.WaitGroup, slid, clid string) {
 						defer wg.Done()
-						err := ovhwrapper.UpdateK8SCluster(writer, realslid, realclid, latest, force)
-						if err != nil {
-							log.Fatalf("Failed to initiate cluster update: %v", err)
-						}
-						status <- MockCheckClusterUpdate(reader, writer, config, realslid, realclid)
+						fmt.Printf("Updating cluster %s in serviceline %s\n", clid, slid)
+						//err := ovhwrapper.UpdateK8SCluster(writer, slid, clid, latest, force)
+						//if err != nil {
+						//	log.Fatalf("Failed to initiate cluster update: %v", err)
+						//}
+						res := MockCheckClusterUpdate(reader, writer, config, slid, clid)
+						status <- res
 					}(&wg, realslid, realclid)
 
 				} // cluster
@@ -848,15 +852,40 @@ func UpdateClusterGroup(reader, writer *ovh.Client, config ovhwrapper.Configurat
 		} // cluster group
 	}
 	wg.Wait()
-	fmt.Printf("All clusters in group %s updated!\n\n", clustergroup)
+	close(status)
+	fmt.Printf("\n%d clusters in group %s updated:\n\n", count, clustergroup)
+
 	for result := range status {
 		fmt.Println(result + "\n")
 	}
 }
 
 func MockCheckClusterUpdate(reader, writer *ovh.Client, config ovhwrapper.Configuration, realslid, realclid string) string {
+	var curStatus, prevStatus string
 	time.Sleep(time.Second * time.Duration(rand.Intn(60)))
-	return statusString(reader, realslid, realclid)
+	for {
+		client, err := ovhwrapper.CreateReader(config)
+		if err != nil {
+			log.Fatalf("Error creating OVH API Reader: %q\n", err)
+		}
+
+		cl := ovhwrapper.GetK8SCluster(client, realslid, realclid)
+		if cl != nil {
+			//fmt.Println("\033[2J")  // clear screen
+			curStatus = statusString(client, realslid, realclid)
+			// show status if status has changed since last check
+			if curStatus != prevStatus {
+				prevStatus = curStatus
+			}
+
+			// end update loop if cluster is in ready state
+			if cl.Status == "READY" {
+				break
+			}
+			time.Sleep(60 * time.Second)
+		}
+	}
+	return curStatus
 }
 
 func UpdateCluster(reader, writer *ovh.Client, config ovhwrapper.Configuration, serviceid, clusterid string, background, latest, force bool) {

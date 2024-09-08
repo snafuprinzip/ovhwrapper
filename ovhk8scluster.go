@@ -199,5 +199,5 @@ func UpdateK8SCluster(client *ovh.Client, service, clusterid string, latest, for
 func (cluster K8SCluster) StatusMsg() string {
 	return fmt.Sprintf("  Cluster: %s\t[%s]\n  Version: %s (available: %v)\n  etcd: %d%% (%d of %d)",
 		cluster.Name, cluster.Status, cluster.Version, cluster.NextUpgradeVersions,
-		cluster.EtcdUsage.Usage*100/cluster.EtcdUsage.Quota, cluster.EtcdUsage.Usage, cluster.EtcdUsage.Quota)
+		(cluster.EtcdUsage.Usage * 100 / cluster.EtcdUsage.Quota), cluster.EtcdUsage.Usage, cluster.EtcdUsage.Quota)
 }
