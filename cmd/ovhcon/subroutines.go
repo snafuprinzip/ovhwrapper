@@ -1,11 +1,13 @@
 package main
 
 import (
+	"context"
 	"encoding/base64"
 	"fmt"
 	"log"
 	"math/rand"
 	"os"
+	"os/exec"
 	"path"
 	"sync"
 	"time"
@@ -751,8 +753,8 @@ func readInventory(reader *ovh.Client, config ovhwrapper.Configuration, inventor
 		// check if local inventory file "./clustergroups.yaml" exists
 		if fileExists("./clustergroups.yaml") {
 			inventory = "./clustergroups.yaml"
-		} else if fileExists("/etc/k8s/clustergroups.yml") {
-			inventory = "/etc/k8s/clustergroups.yml"
+		} else if fileExists("/etc/k8s/clustergroups.yaml") {
+			inventory = "/etc/k8s/clustergroups.yaml"
 		} else {
 			log.Fatalf("No inventory file found. Please specify one with the -i flag.")
 		}
@@ -836,16 +838,16 @@ func UpdateClusterGroup(reader, writer *ovh.Client, config ovhwrapper.Configurat
 					}
 
 					wg.Add(1)
-					go func(wg *sync.WaitGroup, slid, clid string) {
+					go func(wg *sync.WaitGroup, sl, slid, cl, clid string) {
 						defer wg.Done()
-						fmt.Printf("Updating cluster %s in serviceline %s\n", clid, slid)
+						fmt.Printf("Updating cluster %25s (%s) in serviceline %25s (%s)\n", cl, clid, sl, slid)
 						//err := ovhwrapper.UpdateK8SCluster(writer, slid, clid, latest, force)
 						//if err != nil {
 						//	log.Fatalf("Failed to initiate cluster update: %v", err)
 						//}
-						res := MockCheckClusterUpdate(reader, writer, config, slid, clid)
+						res := CheckCronClusterUpdate(reader, writer, config, sl, slid, cl, clid)
 						status <- res
-					}(&wg, realslid, realclid)
+					}(&wg, project.Name, realslid, clustername, realclid)
 
 				} // cluster
 			} // project
@@ -861,9 +863,20 @@ func UpdateClusterGroup(reader, writer *ovh.Client, config ovhwrapper.Configurat
 	}
 }
 
-func MockCheckClusterUpdate(reader, writer *ovh.Client, config ovhwrapper.Configuration, realslid, realclid string) string {
+func CheckCronClusterUpdate(reader, writer *ovh.Client, config ovhwrapper.Configuration, sl, realslid, cl, realclid string) string {
 	var curStatus, prevStatus string
-	time.Sleep(time.Second * time.Duration(rand.Intn(60)))
+
+	logfile, err := os.OpenFile(path.Join("/var/log/k8s/updates", sl+"-"+cl+".log"), os.O_WRONLY|os.O_CREATE, 0660)
+	if err != nil {
+		log.Printf("Failed to open log file: %v", err)
+	}
+	defer logfile.Close()
+
+	fmt.Fprintf(logfile, "Update for %s started at %s...\n", cl, time.Now().Format("2006-01-02 13:59:30"))
+
+	// mock sleep to simulate a little bit of update time
+	time.Sleep(time.Second * time.Duration(rand.Intn(30)))
+
 	for {
 		client, err := ovhwrapper.CreateReader(config)
 		if err != nil {
@@ -876,6 +889,7 @@ func MockCheckClusterUpdate(reader, writer *ovh.Client, config ovhwrapper.Config
 			curStatus = statusString(client, realslid, realclid)
 			// show status if status has changed since last check
 			if curStatus != prevStatus {
+				fmt.Fprintln(logfile, curStatus)
 				prevStatus = curStatus
 			}
 
@@ -886,6 +900,9 @@ func MockCheckClusterUpdate(reader, writer *ovh.Client, config ovhwrapper.Config
 			time.Sleep(60 * time.Second)
 		}
 	}
+	fmt.Fprintf(logfile, "Update for %s finished at %s...\n", cl, time.Now().Format("2006-01-02 13:59:30"))
+	logfile.Close()
+	exec.CommandContext(context.Background(), "bash", "-c", "/usr/bin/mail", "-s ", "k8s Update: "+cl, "-a", path.Join("/var/log/k8s/updates", sl+"-"+cl+".log"), "michael.leimenmeier@gfi.ihk.de")
 	return curStatus
 }
 
