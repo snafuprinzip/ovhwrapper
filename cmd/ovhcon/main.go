@@ -84,7 +84,7 @@ func main() {
 
 	cmd := &cli.Command{
 		Name:      "ovhcon",
-		Version:   "v0.1.0",
+		Version:   "v0.1.1",
 		Copyright: "(c) 2024 Michael Leimenmeier",
 		Usage:     "cli tool for the ovh api",
 		UsageText: "ovhcon <command> [subcommand] [options]",

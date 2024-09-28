@@ -1,20 +1,19 @@
 package main
 
 import (
-	"context"
 	"encoding/base64"
 	"fmt"
+	"gopkg.in/yaml.v3"
 	"log"
 	"math/rand"
 	"os"
-	"os/exec"
 	"path"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/ovh/go-ovh/ovh"
 	"github.com/snafuprinzip/ovhwrapper"
-	"gopkg.in/yaml.v3"
 )
 
 type Inventory struct {
@@ -27,8 +26,10 @@ type Clustergroup struct {
 }
 
 type CGProject struct {
-	Name     string   `yaml:"name"`
-	Clusters []string `yaml:"clusters"`
+	Name         string   `yaml:"name"`
+	Email        string   `yaml:"email"`
+	TeamsWebhook string   `yaml:"teamsWebhook"`
+	Clusters     []string `yaml:"clusters"`
 }
 
 // credentials returns information about the reader and writer accounts in different formats (yaml, json or text)
@@ -811,6 +812,8 @@ func UpdateClusterGroup(reader, writer *ovh.Client, config ovhwrapper.Configurat
 				for _, clustername := range project.Clusters {
 					realslid := ""
 					realclid := ""
+					slEmail := project.Email
+					slTeamsHook := project.TeamsWebhook
 
 					// determine project and cluster IDs
 					slids := ovhwrapper.GetServicelines(reader)
@@ -845,7 +848,7 @@ func UpdateClusterGroup(reader, writer *ovh.Client, config ovhwrapper.Configurat
 						//if err != nil {
 						//	log.Fatalf("Failed to initiate cluster update: %v", err)
 						//}
-						res := CheckCronClusterUpdate(reader, writer, config, sl, slid, cl, clid)
+						res := CheckCronClusterUpdate(reader, writer, config, sl, slid, cl, clid, slEmail, slTeamsHook)
 						status <- res
 					}(&wg, project.Name, realslid, clustername, realclid)
 
@@ -863,7 +866,7 @@ func UpdateClusterGroup(reader, writer *ovh.Client, config ovhwrapper.Configurat
 	}
 }
 
-func CheckCronClusterUpdate(reader, writer *ovh.Client, config ovhwrapper.Configuration, sl, realslid, cl, realclid string) string {
+func CheckCronClusterUpdate(reader, writer *ovh.Client, config ovhwrapper.Configuration, sl, realslid, cl, realclid, email, teamshook string) string {
 	var curStatus, prevStatus string
 
 	logfile, err := os.OpenFile(path.Join("/var/log/k8s/updates", sl+"-"+cl+".log"), os.O_WRONLY|os.O_CREATE, 0660)
@@ -872,7 +875,7 @@ func CheckCronClusterUpdate(reader, writer *ovh.Client, config ovhwrapper.Config
 	}
 	defer logfile.Close()
 
-	fmt.Fprintf(logfile, "Update for %s started at %s...\n", cl, time.Now().Format("2006-01-02 13:59:30"))
+	fmt.Fprintf(logfile, "Update for %s started at %s...\n\n", cl, time.Now().Format(time.RFC1123Z))
 
 	// mock sleep to simulate a little bit of update time
 	time.Sleep(time.Second * time.Duration(rand.Intn(30)))
@@ -900,9 +903,36 @@ func CheckCronClusterUpdate(reader, writer *ovh.Client, config ovhwrapper.Config
 			time.Sleep(60 * time.Second)
 		}
 	}
-	fmt.Fprintf(logfile, "Update for %s finished at %s...\n", cl, time.Now().Format("2006-01-02 13:59:30"))
-	logfile.Close()
-	exec.CommandContext(context.Background(), "bash", "-c", "/usr/bin/mail", "-s ", "k8s Update: "+cl, "-a", path.Join("/var/log/k8s/updates", sl+"-"+cl+".log"), "michael.leimenmeier@gfi.ihk.de")
+	fmt.Fprintf(logfile, "Update for %s finished at %s...\n", cl, time.Now().Format(time.RFC1123Z))
+	err = logfile.Close()
+	if err != nil {
+		log.Printf("Failed to close log file: %v", err)
+	}
+
+	recipients := []string{"mleimenmeier@me.com"}
+	if email != "" {
+		recipients = append(recipients, email)
+	}
+
+	teamshooks := []string{}
+	if teamshook != "" {
+		teamshooks = append(teamshooks, teamshook)
+	}
+
+	logtext, err := os.ReadFile(path.Join("/var/log/k8s/updates", sl+"-"+cl+".log"))
+	if err != nil {
+		log.Fatalf("Failed to read log file: %v", err)
+	} else {
+		log.Printf("Sending mail for %s to %s...\n", cl, strings.Join(recipients, ", "))
+		err := SendMail("k8s Update: "+cl, string(logtext), recipients)
+		if err != nil {
+			log.Printf("Failed to send mail: %v", err)
+		}
+		err = TeamsNotify("k8s Update: "+cl, string(logtext), teamshooks)
+		if err != nil {
+			log.Printf("Failed to send teams notification: %v", err)
+		}
+	}
 	return curStatus
 }
 
