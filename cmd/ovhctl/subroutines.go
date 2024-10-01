@@ -28,8 +28,134 @@ type CGProject struct {
 	Clusters []string `yaml:"clusters"`
 }
 
-// credentials returns information about the reader and writer accounts in different formats (yaml, json or text)
-func credentials(reader, writer *ovh.Client, format string) {
+var Flavors ovhwrapper.K8SFlavors
+
+func GatherGlobalInventory(client *ovh.Client) {
+	GlobalInventory = []ovhwrapper.ServiceLine{}
+	projectIDs := ovhwrapper.GetServicelines(client)
+
+	projectChannel := make(chan ovhwrapper.ServiceLine)
+	for _, projectID := range projectIDs {
+		go GatherServiceline(client, projectID, projectChannel)
+	}
+	for len(GlobalInventory) < len(projectIDs) {
+		GlobalInventory = append(GlobalInventory, <-projectChannel)
+	}
+}
+
+func GatherServiceline(client *ovh.Client, projectID string, projectChan chan<- ovhwrapper.ServiceLine) {
+	detailChan := make(chan ovhwrapper.OVHServiceLine)
+	clustersChan := make(chan []ovhwrapper.K8SCluster)
+
+	go func(detailChan chan<- ovhwrapper.OVHServiceLine) {
+		servicedetails, err := ovhwrapper.GetServicelineDetails(client, projectID)
+		if err != nil {
+			log.Printf("Failed to get serviceline details: %v", err)
+			detailChan <- ovhwrapper.OVHServiceLine{}
+		} else {
+			detailChan <- servicedetails
+		}
+	}(detailChan)
+
+	clusterids, err := ovhwrapper.GetK8SClusterIDs(client, projectID)
+	if err != nil {
+		log.Fatalf("Failed to get cluster IDs: %v", err)
+	}
+
+	go GatherClusters(client, projectID, clusterids, clustersChan)
+
+	serviceline := ovhwrapper.ServiceLine{
+		ID:        projectID,
+		SLDetails: <-detailChan,
+		Cluster:   <-clustersChan,
+	}
+
+	projectChan <- serviceline
+}
+
+func GatherClusters(client *ovh.Client, projectID string, clusterids []string, clustersChan chan<- []ovhwrapper.K8SCluster) {
+	var clusters []ovhwrapper.K8SCluster
+	clusterChan := make(chan ovhwrapper.K8SCluster)
+
+	for _, clusterID := range clusterids {
+		go func(projectID string, clusterID string, clusterChan chan<- ovhwrapper.K8SCluster) {
+			GatherCluster(client, projectID, clusterID, clusterChan)
+		}(projectID, clusterID, clusterChan)
+	}
+
+	for _ = range len(clusterids) {
+		cluster := <-clusterChan
+		clusters = append(clusters, cluster)
+	}
+	close(clusterChan)
+	clustersChan <- clusters
+}
+
+func GatherCluster(client *ovh.Client, projectID string, clusterID string, clusterChan chan<- ovhwrapper.K8SCluster) {
+	etcdChan := make(chan ovhwrapper.K8SEtcd)
+	nodesChan := make(chan []ovhwrapper.K8SNode)
+	nodepoolsChan := make(chan []ovhwrapper.K8SNodepool)
+
+	cluster := ovhwrapper.GetK8SCluster(client, projectID, clusterID)
+	//fmt.Println(clusterID, cluster.ID, cluster.Name)
+
+	go GatherEtcd(client, projectID, clusterID, etcdChan)
+	go GatherNodes(client, projectID, clusterID, nodesChan)
+	go GatherNodepools(client, projectID, clusterID, nodepoolsChan)
+
+	semaphore := 0
+	for {
+		select {
+		case cluster.EtcdUsage = <-etcdChan:
+			semaphore++
+		case cluster.Nodes = <-nodesChan:
+			semaphore++
+		case cluster.Nodepools = <-nodepoolsChan:
+			semaphore++
+		}
+		if semaphore == 3 {
+			break
+		}
+	}
+
+	clusterChan <- *cluster
+}
+
+func GatherEtcd(client *ovh.Client, projectID string, clusterID string, etcdChan chan<- ovhwrapper.K8SEtcd) {
+	var etcd ovhwrapper.K8SEtcd
+	etcd, err := ovhwrapper.GetK8SEtcd(client, projectID, clusterID)
+	if err != nil {
+		log.Printf("Error getting etcd usage: %q\n", err)
+		etcdChan <- ovhwrapper.K8SEtcd{}
+		return
+	}
+	etcdChan <- etcd
+}
+
+func GatherNodes(client *ovh.Client, projectID string, clusterID string, nodesChan chan<- []ovhwrapper.K8SNode) {
+	var nodes []ovhwrapper.K8SNode
+	nodes, err := ovhwrapper.GetK8SNodes(client, projectID, clusterID)
+	if err != nil {
+		log.Printf("Error getting nodes: %q\n", err)
+		nodesChan <- []ovhwrapper.K8SNode{}
+		return
+	}
+	nodesChan <- nodes
+}
+
+func GatherNodepools(client *ovh.Client, projectID string, clusterID string, nodepoolsChan chan<- []ovhwrapper.K8SNodepool) {
+	var nodepools []ovhwrapper.K8SNodepool
+	nodepools, err := ovhwrapper.GetK8SNodepools(client, projectID, clusterID)
+	if err != nil {
+		log.Printf("Error getting nodepools: %q\n", err)
+		nodepoolsChan <- []ovhwrapper.K8SNodepool{}
+		return
+	}
+	nodepoolsChan <- nodepools
+}
+
+// Credentials returns information about the reader and writer accounts in different formats (yaml, json or text)
+func Credentials(reader, writer *ovh.Client, format string) {
 	rcred, err := ovhwrapper.GetCredential(reader)
 	if err != nil {
 		log.Printf("Error getting reader credentials: %q\n", err)
@@ -63,44 +189,11 @@ func credentials(reader, writer *ovh.Client, format string) {
 	}
 }
 
-// list lists servicelines and their clusters (when -a is set),
+// List lists servicelines and their clusters (when -a is set),
 // servicelines (when -s is not set) or clusters (when -s is set)
-func list(client *ovh.Client, all bool, serviceid string) {
-	var err error
-	var sls []ovhwrapper.ServiceLine
-
-	//fmt.Println(all, serviceid)
-
-	// Get flat Serviceline info
-	slids := ovhwrapper.GetServicelines(client) // list of sl ids
-	for _, slid := range slids {
-		sl := ovhwrapper.ServiceLine{ID: slid}
-		sl.SLDetails, err = ovhwrapper.GetServicelineDetails(client, slid)
-		if err != nil {
-			log.Fatalf("Failed to get service lines: %v", err)
-		}
-		sls = append(sls, sl)
-	}
-
+func List(client *ovh.Client, all bool, serviceid string) {
 	if all { // list all servicelines and their clusters
-		for idx := range sls {
-			clusterids, err := ovhwrapper.GetK8SClusterIDs(client, sls[idx].ID)
-			if err != nil {
-				log.Fatalf("Failed to get cluster IDs: %v", err)
-			}
-			var clusterlist []ovhwrapper.K8SCluster
-			for _, clusterid := range clusterids {
-				cluster := ovhwrapper.GetK8SCluster(client, sls[idx].ID, clusterid)
-				//fmt.Printf("sl %-2d: %s\t%v\n", idx, clusterid, cluster)
-				if cluster != nil {
-					clusterlist = append(clusterlist, *cluster)
-				}
-			}
-			sls[idx].Cluster = clusterlist
-		}
-
-		// output
-		for _, sl := range sls {
+		for _, sl := range GlobalInventory {
 			fmt.Printf("%-25s (%s) \t %s \n", ovhwrapper.ShortenName(sl.SLDetails.Description), sl.ID, sl.SLDetails.Description)
 			for _, cluster := range sl.Cluster {
 				fmt.Printf("  %-25s (%s) \t %s \n", ovhwrapper.ShortenName(cluster.Name), cluster.ID, cluster.Name)
@@ -110,7 +203,7 @@ func list(client *ovh.Client, all bool, serviceid string) {
 	} else if serviceid != "" { // show clusters for a specific serviceline
 		var sl ovhwrapper.ServiceLine
 
-		for _, s := range sls {
+		for _, s := range GlobalInventory {
 			if MatchItem(s, serviceid) {
 				sl = s
 				break
@@ -122,28 +215,87 @@ func list(client *ovh.Client, all bool, serviceid string) {
 			return
 		}
 
-		clusterids, err := ovhwrapper.GetK8SClusterIDs(client, sl.ID)
-		if err != nil {
-			log.Fatalf("Failed to get cluster IDs: %v", err)
-		}
-		var clusterlist []ovhwrapper.K8SCluster
-		for _, clusterid := range clusterids {
-			cluster := ovhwrapper.GetK8SCluster(client, sl.ID, clusterid)
-			//fmt.Printf("sl %-2d: %s\t%v\n", idx, clusterid, cluster)
-			if cluster != nil {
-				clusterlist = append(clusterlist, *cluster)
-			}
-		}
-		sl.Cluster = clusterlist
-
 		fmt.Printf("%-25s (%s) \t %s \n", ovhwrapper.ShortenName(sl.SLDetails.Description), sl.ID, sl.SLDetails.Description)
 		for _, cluster := range sl.Cluster {
 			fmt.Printf("  %-25s (%s) \t %s \n", ovhwrapper.ShortenName(cluster.Name), cluster.ID, cluster.Name)
 		}
 		fmt.Println()
 	} else { // serviceid == ""
-		for _, sl := range sls {
+		for _, sl := range GlobalInventory {
 			fmt.Printf("%-25s (%s) \t %s \n", ovhwrapper.ShortenName(sl.SLDetails.Description), sl.ID, sl.SLDetails.Description)
+		}
+	}
+}
+
+func GetKubeConfig(reader, writer *ovh.Client, projectID string, clusterID, output, outpath string,
+	globalconfig *ovhwrapper.KubeConfig) {
+
+	kc, err := ovhwrapper.GetKubeconfig(writer, projectID, clusterID)
+	if err != nil {
+		log.Printf("Failed to get kubeconfig: %s", err)
+		return
+	}
+
+	for _, project := range GlobalInventory {
+		if project.ID == projectID {
+			for _, cluster := range project.Cluster {
+				if cluster.ID == clusterID {
+					switch output {
+					case "global":
+						globalconfig.AddContext(kc)
+					case "certs":
+						certpath := path.Join(outpath, project.SLDetails.Description, cluster.Name)
+						err := os.MkdirAll(certpath, 0700)
+						if err != nil {
+							log.Printf("Failed to create output directory: %v", err)
+							continue
+						}
+
+						fmt.Printf("Extracting certificates for %s serviceline's %s cluster to %s...\n",
+							project.SLDetails.Description, cluster.Name, certpath)
+
+						ca, err := base64.StdEncoding.DecodeString(kc.Clusters[0].Cluster.CertificateAuthorityData)
+						if err != nil {
+							log.Fatal("error decoding ca certificate:", err)
+						}
+						err = os.WriteFile(path.Join(certpath, "ca.crt"), ca, 0600)
+						if err != nil {
+							fmt.Printf("Failed to write ca.crt output file: %v", err)
+						}
+
+						crt, err := base64.StdEncoding.DecodeString(kc.Users[0].User.ClientCertificateData)
+						if err != nil {
+							log.Fatal("error decoding user client certificate:", err)
+						}
+						err = os.WriteFile(path.Join(certpath, "client.crt"), crt, 0600)
+						if err != nil {
+							fmt.Printf("Failed to write client.crt output file: %v", err)
+						}
+
+						key, err := base64.StdEncoding.DecodeString(kc.Users[0].User.ClientKeyData)
+						if err != nil {
+							log.Fatal("error decoding user client private key:", err)
+						}
+						err = os.WriteFile(path.Join(certpath, "client.key"), key, 0600)
+						if err != nil {
+							fmt.Printf("Failed to write client.key output file: %v", err)
+						}
+					case "file":
+						fallthrough
+					default:
+						err := os.MkdirAll(outpath, 0700)
+						if err != nil {
+							log.Printf("Failed to create output directory: %v", err)
+							continue
+						}
+						fmt.Printf("Saving kubeconfig to %s...\n", path.Join(outpath, project.SLDetails.Description+"_"+cluster.Name+".yaml"))
+						err = ovhwrapper.SaveYaml(kc, path.Join(outpath, project.SLDetails.Description+"_"+cluster.Name+".yaml"))
+						if err != nil {
+							log.Printf("Saving Kubeconfig failed: %v", err)
+						}
+					}
+				}
+			}
 		}
 	}
 }
@@ -160,92 +312,11 @@ func DownloadKubeconfig(reader, writer *ovh.Client, all bool, serviceid, cluster
 		outpath = "./"
 	}
 
-	// Get flat Serviceline and cluster info
-	slids := ovhwrapper.GetServicelines(reader) // list of sl ids
-	for _, slid := range slids {
-		sl := ovhwrapper.ServiceLine{ID: slid}
-		sl.SLDetails, err = ovhwrapper.GetServicelineDetails(reader, slid)
-		if err != nil {
-			log.Fatalf("Failed to get service lines: %v", err)
-		}
-		clusterids, err := ovhwrapper.GetK8SClusterIDs(reader, sl.ID)
-		if err != nil {
-			log.Fatalf("Failed to get cluster IDs: %v", err)
-		}
-		var clusterlist []ovhwrapper.K8SCluster
-		for _, clid := range clusterids {
-			cluster := ovhwrapper.GetK8SCluster(reader, slid, clid)
-			if cluster != nil {
-				clusterlist = append(clusterlist, *cluster)
-			}
-		}
-		sl.Cluster = clusterlist
-		sls = append(sls, sl)
-	}
-
 	if all {
-		for _, sl := range sls {
+		for _, sl := range GlobalInventory {
 			fmt.Println("Processing Serviceline: ", sl.SLDetails.Description)
 			for _, cl := range sl.Cluster {
-				kc, err := ovhwrapper.GetKubeconfig(writer, sl.ID, cl.ID)
-				if err != nil {
-					log.Printf("Failed to get kubeconfig: %v", err)
-					continue
-				}
-				switch output {
-				case "global":
-					globalconfig.AddContext(kc)
-				case "certs":
-					certpath := path.Join(outpath, sl.SLDetails.Description, cl.Name)
-					err := os.MkdirAll(certpath, 0700)
-					if err != nil {
-						log.Printf("Failed to create output directory: %v", err)
-						continue
-					}
-
-					fmt.Printf("Extracting certificates for %s serviceline's %s cluster to %s...\n",
-						sl.SLDetails.Description, cl.Name, certpath)
-
-					ca, err := base64.StdEncoding.DecodeString(kc.Clusters[0].Cluster.CertificateAuthorityData)
-					if err != nil {
-						log.Fatal("error decoding ca certificate:", err)
-					}
-					err = os.WriteFile(path.Join(certpath, "ca.crt"), ca, 0600)
-					if err != nil {
-						fmt.Printf("Failed to write ca.crt output file: %v", err)
-					}
-
-					crt, err := base64.StdEncoding.DecodeString(kc.Users[0].User.ClientCertificateData)
-					if err != nil {
-						log.Fatal("error decoding user client certificate:", err)
-					}
-					err = os.WriteFile(path.Join(certpath, "client.crt"), crt, 0600)
-					if err != nil {
-						fmt.Printf("Failed to write client.crt output file: %v", err)
-					}
-
-					key, err := base64.StdEncoding.DecodeString(kc.Users[0].User.ClientKeyData)
-					if err != nil {
-						log.Fatal("error decoding user client private key:", err)
-					}
-					err = os.WriteFile(path.Join(certpath, "client.key"), key, 0600)
-					if err != nil {
-						fmt.Printf("Failed to write client.key output file: %v", err)
-					}
-				case "file":
-					fallthrough
-				default:
-					err := os.MkdirAll(outpath, 0700)
-					if err != nil {
-						log.Printf("Failed to create output directory: %v", err)
-						continue
-					}
-					fmt.Printf("Saving kubeconfig to %s...\n", path.Join(outpath, sl.SLDetails.Description+"_"+cl.Name+".yaml"))
-					err = ovhwrapper.SaveYaml(kc, path.Join(outpath, sl.SLDetails.Description+"_"+cl.Name+".yaml"))
-					if err != nil {
-						log.Printf("Saving Kubeconfig failed: %v", err)
-					}
-				}
+				GetKubeConfig(reader, writer, sl.ID, cl.ID, output, outpath, &globalconfig)
 			}
 		}
 	} else if serviceid != "" && clusterid != "" {
@@ -253,59 +324,7 @@ func DownloadKubeconfig(reader, writer *ovh.Client, all bool, serviceid, cluster
 			if MatchItem(sl, serviceid) {
 				for _, cl := range sl.Cluster {
 					if MatchItem(cl, clusterid) {
-						kc, err := ovhwrapper.GetKubeconfig(writer, sl.ID, cl.ID)
-						if err != nil {
-							log.Printf("Failed to get kubeconfig: %v", err)
-							return
-						}
-						switch output {
-						case "global":
-							globalconfig.AddContext(kc)
-						case "certs":
-							certpath := path.Join(outpath, sl.SLDetails.Description, cl.Name)
-							err := os.MkdirAll(certpath, 0700)
-							if err != nil {
-								log.Printf("Failed to create output directory: %v", err)
-								continue
-							}
-
-							fmt.Printf("Extracting certificates for %s serviceline's %s cluster to %s...\n",
-								sl.SLDetails.Description, cl.Name, certpath)
-
-							ca, err := base64.StdEncoding.DecodeString(kc.Clusters[0].Cluster.CertificateAuthorityData)
-							if err != nil {
-								log.Fatal("error decoding ca certificate:", err)
-							}
-							err = os.WriteFile(path.Join(certpath, "ca.crt"), ca, 0600)
-							if err != nil {
-								fmt.Printf("Failed to write ca.crt output file: %v", err)
-							}
-
-							crt, err := base64.StdEncoding.DecodeString(kc.Users[0].User.ClientCertificateData)
-							if err != nil {
-								log.Fatal("error decoding user client certificate:", err)
-							}
-							err = os.WriteFile(path.Join(certpath, "client.crt"), crt, 0600)
-							if err != nil {
-								fmt.Printf("Failed to write client.crt output file: %v", err)
-							}
-
-							key, err := base64.StdEncoding.DecodeString(kc.Users[0].User.ClientKeyData)
-							if err != nil {
-								log.Fatal("error decoding user client private key:", err)
-							}
-							err = os.WriteFile(path.Join(certpath, "client.key"), key, 0600)
-							if err != nil {
-								fmt.Printf("Failed to write client.key output file: %v", err)
-							}
-						case "file":
-							fallthrough
-						default:
-							err = ovhwrapper.SaveYaml(kc, sl.SLDetails.Description+"_"+cl.Name+".yaml")
-							if err != nil {
-								log.Printf("Saving Kubeconfig failed: %v", err)
-							}
-						}
+						GetKubeConfig(reader, writer, sl.ID, cl.ID, output, outpath, &globalconfig)
 					}
 				}
 			}
@@ -323,26 +342,17 @@ func DownloadKubeconfig(reader, writer *ovh.Client, all bool, serviceid, cluster
 	}
 }
 
-// status shows the current status of servicelines and their clusters (when -a is set),
+// Status shows the current status of servicelines and their clusters (when -a is set),
 // or a specific cluster (when -s and -c is set)
-func status(client *ovh.Client, all bool, serviceline, cluster string) {
-	var sls []ovhwrapper.ServiceLine
-	var cl *ovhwrapper.K8SCluster
-	var realslid, realclid string
-	var err error
+func Status(client *ovh.Client, all bool, serviceline, cluster string) {
+	flavors, err := ovhwrapper.GetK8SFlavors(client, GlobalInventory[0].ID, GlobalInventory[0].Cluster[0].ID)
 
 	if all {
-		services := ovhwrapper.GetServicelines(client)
-		for _, service := range services {
-			sl := CollectServiceline(client, service)
-			sls = append(sls, *sl)
-		}
-		flavors, err := ovhwrapper.GetK8SFlavors(client, sls[0].ID, sls[0].Cluster[0].ID)
 		if err != nil {
 			log.Printf("Error getting available flavors: %q\n", err)
 		}
 
-		for _, sl := range sls {
+		for _, sl := range GlobalInventory {
 			fmt.Println(sl.StatusMsg())
 			for _, cl := range sl.Cluster {
 				fmt.Println(cl.StatusMsg())
@@ -358,68 +368,10 @@ func status(client *ovh.Client, all bool, serviceline, cluster string) {
 	}
 
 	if serviceline != "" { // list serviceline and it's clusters
-		services := ovhwrapper.GetServicelines(client)
-		for _, service := range services {
-			sl := GetServiceline(client, service)
-			if MatchItem(*sl, serviceline) {
-				realslid = sl.ID
-				sl.SLDetails, err = ovhwrapper.GetServicelineDetails(client, sl.ID)
-				if err != nil {
-					break
-				}
-
-				clusterids, err := ovhwrapper.GetK8SClusterIDs(client, sl.ID)
-				if err != nil {
-					log.Fatalf("Failed to get cluster IDs: %v", err)
-				}
-
-				var clusterlist []ovhwrapper.K8SCluster
-
-				for _, clid := range clusterids {
-					if cluster != "" { // cluster id is given on the command line
-						cl = ovhwrapper.GetK8SCluster(client, sl.ID, clid)
-						if MatchItem(*cl, cluster) {
-							realclid = cl.ID
-							cl, err = ovhwrapper.GetK8SClusterDetails(client, cl, realslid, realclid)
-							if err == nil && cl != nil {
-								clusterlist = append(clusterlist, *cl)
-								break
-							}
-						}
-					} else { // all clusters
-						cl := CollectCluster(client, sl.ID, clid)
-						if cl != nil {
-							clusterlist = append(clusterlist, *cl)
-						}
-					}
-				}
-
-				sl.Cluster = clusterlist
-
-				sls = append(sls, *sl)
-			}
-		}
-
-		if len(sls) == 0 {
-			log.Printf("No servicelines found for the given identifier: %s\n", serviceline)
-			return
-		}
-
-		if len(sls[0].Cluster) == 0 {
-			log.Printf("No clusters found for the given identifier: %s\n", cluster)
-			return
-		}
-
-		flavors, err := ovhwrapper.GetK8SFlavors(client, sls[0].ID, sls[0].Cluster[0].ID)
-		if err != nil {
-			log.Printf("Error getting available flavors: %q\n", err)
-			return
-		}
-
-		for _, sl := range sls {
-			if MatchItem(sl, serviceline) {
-				fmt.Println(sl.StatusMsg())
-				for _, cl := range sl.Cluster {
+		for _, service := range GlobalInventory {
+			if MatchItem(service, serviceline) {
+				fmt.Println(service.StatusMsg())
+				for _, cl := range service.Cluster {
 					if cluster == "" || MatchItem(cl, cluster) {
 						fmt.Println(cl.StatusMsg())
 						for _, n := range cl.Nodes {
@@ -522,56 +474,22 @@ func statusString(client *ovh.Client, serviceline, cluster string) string {
 	return s
 }
 
-// describe shows the details of servicelines and their clusters (when only -a is set),
+// Describe shows the details of servicelines and their clusters (when only -a is set),
 // a serviceline (when -c is not set), a serviceline and all it's clusters (when -a is set as well)
 // or a specific cluster (when -s and -c is set, including serviceline if -a is set as well)
-func describe(client *ovh.Client, all bool, serviceid, clusterid, output string) {
-	var err error
-	var sls []ovhwrapper.ServiceLine
-
-	// Get flat Serviceline info
-	slids := ovhwrapper.GetServicelines(client) // list of sl ids
-	for _, slid := range slids {
-		sl := ovhwrapper.ServiceLine{ID: slid}
-		sl.SLDetails, err = ovhwrapper.GetServicelineDetails(client, slid)
-		if err != nil {
-			log.Fatalf("Failed to get service lines: %v", err)
-		}
-		sls = append(sls, sl)
-	}
-
+func Describe(client *ovh.Client, all bool, serviceid, clusterid, output string) {
 	if serviceid == "" && clusterid == "" { // all servicelines and their clusters
-		for idx := range sls {
-			clusterids, err := ovhwrapper.GetK8SClusterIDs(client, sls[idx].ID)
-			if err != nil {
-				log.Fatalf("Failed to get cluster IDs: %v", err)
-			}
-			var clusterlist []ovhwrapper.K8SCluster
-			for _, clusterid := range clusterids {
-				cluster := CollectCluster(client, sls[idx].ID, clusterid)
-				//fmt.Printf("sl %-2d: %s\t%v\n", idx, clusterid, cluster)
-				if cluster != nil {
-					clusterlist = append(clusterlist, *cluster)
-				}
-			}
-			sls[idx].Cluster = clusterlist
-		}
 
 		// output
 		switch output {
 		case "yaml":
-			fmt.Println(ovhwrapper.ToYaml(sls))
+			fmt.Println(ovhwrapper.ToYaml(GlobalInventory))
 		case "json":
-			fmt.Println(ovhwrapper.ToJSON(sls))
+			fmt.Println(ovhwrapper.ToJSON(GlobalInventory))
 		case "text":
 			fallthrough
 		default:
-			flavors, err := ovhwrapper.GetK8SFlavors(client, sls[0].ID, sls[0].Cluster[0].ID)
-			if err != nil {
-				log.Printf("Error getting available flavors: %q\n", err)
-			}
-
-			for _, sl := range sls {
+			for _, sl := range GlobalInventory {
 				fmt.Println(sl.Details())
 				for _, cluster := range sl.Cluster {
 					fmt.Println(cluster.Details())
@@ -579,7 +497,7 @@ func describe(client *ovh.Client, all bool, serviceid, clusterid, output string)
 					fmt.Println()
 					for _, n := range cluster.Nodes {
 						fmt.Println(n.Details())
-						f := flavors[n.Flavor]
+						f := Flavors[n.Flavor]
 						fmt.Println(f.Details())
 						fmt.Println()
 					}
@@ -595,7 +513,7 @@ func describe(client *ovh.Client, all bool, serviceid, clusterid, output string)
 	} else if serviceid != "" && clusterid == "" { // show all clusters for a specific serviceline
 		var sl ovhwrapper.ServiceLine
 
-		for _, s := range sls {
+		for _, s := range GlobalInventory {
 			if MatchItem(s, serviceid) {
 				sl = s
 				break
@@ -607,30 +525,7 @@ func describe(client *ovh.Client, all bool, serviceid, clusterid, output string)
 			return
 		}
 
-		if all {
-			clusterids, err := ovhwrapper.GetK8SClusterIDs(client, sl.ID)
-			if err != nil {
-				log.Fatalf("Failed to get cluster IDs: %v", err)
-			}
-
-			var clusterlist []ovhwrapper.K8SCluster
-			for _, clid := range clusterids {
-				cluster := CollectCluster(client, sl.ID, clid)
-				if cluster != nil {
-					clusterlist = append(clusterlist, *cluster)
-				}
-			}
-			sl.Cluster = clusterlist
-		}
-
 		// output
-		var flavors ovhwrapper.K8SFlavors
-		if sl.Cluster != nil {
-			flavors, err = ovhwrapper.GetK8SFlavors(client, sl.ID, sl.Cluster[0].ID)
-			if err != nil {
-				log.Printf("Error getting available flavors: %q\n", err)
-			}
-		}
 		switch output {
 		case "yaml":
 			fmt.Println(ovhwrapper.ToYaml(sl))
@@ -646,7 +541,7 @@ func describe(client *ovh.Client, all bool, serviceid, clusterid, output string)
 				fmt.Println()
 				for _, n := range cluster.Nodes {
 					fmt.Println(n.Details())
-					f := flavors[n.Flavor]
+					f := Flavors[n.Flavor]
 					fmt.Println(f.Details())
 					fmt.Println()
 				}
@@ -661,7 +556,7 @@ func describe(client *ovh.Client, all bool, serviceid, clusterid, output string)
 	} else if serviceid != "" && clusterid != "" {
 		var sl ovhwrapper.ServiceLine
 
-		for _, s := range sls {
+		for _, s := range GlobalInventory {
 			if MatchItem(s, serviceid) {
 				sl = s
 				break
@@ -673,19 +568,11 @@ func describe(client *ovh.Client, all bool, serviceid, clusterid, output string)
 			return
 		}
 
-		clusterids, err := ovhwrapper.GetK8SClusterIDs(client, sl.ID)
-		if err != nil {
-			log.Fatalf("Failed to get cluster IDs: %v", err)
-		}
-
 		var cluster *ovhwrapper.K8SCluster
-		for _, clid := range clusterids {
-			cl := ovhwrapper.GetK8SCluster(client, sl.ID, clid)
-			if cl != nil {
-				if MatchItem(*cl, clusterid) {
-					cluster = CollectCluster(client, sl.ID, cl.ID)
-					break
-				}
+		for _, cl := range sl.Cluster {
+			if MatchItem(cl, clusterid) {
+				cluster = &cl
+				break
 			}
 		}
 
@@ -711,36 +598,30 @@ func describe(client *ovh.Client, all bool, serviceid, clusterid, output string)
 				return
 			}
 
-			flavors, err := ovhwrapper.GetK8SFlavors(client, sl.ID, cluster.ID)
-			if err != nil {
-				log.Printf("Error getting available flavors: %q\n", err)
-			}
-
 			if all {
 				fmt.Println(sl.Details())
 				fmt.Println()
 			}
-			if cluster != nil {
-				fmt.Println(cluster.Details())
-				fmt.Println(cluster.EtcdUsage.Details())
-				if all {
-					fmt.Println("Nodes:")
+
+			fmt.Println(cluster.Details())
+			fmt.Println(cluster.EtcdUsage.Details())
+			if all {
+				fmt.Println("Nodes:")
+				fmt.Println()
+				for _, n := range cluster.Nodes {
+					fmt.Println(n.Details())
+					f := Flavors[n.Flavor]
+					fmt.Println(f.Details())
 					fmt.Println()
-					for _, n := range cluster.Nodes {
-						fmt.Println(n.Details())
-						f := flavors[n.Flavor]
-						fmt.Println(f.Details())
-						fmt.Println()
-					}
-					for _, p := range cluster.Nodepools {
-						fmt.Println(p.Details())
-						fmt.Println()
-					}
 				}
-				fmt.Println("\n-----")
+				for _, p := range cluster.Nodepools {
+					fmt.Println(p.Details())
+					fmt.Println()
+				}
 			}
-			//fmt.Println()
+			fmt.Println("\n-----")
 		}
+		//fmt.Println()
 	}
 }
 
@@ -978,7 +859,7 @@ func ResetKubeconfig(reader, writer *ovh.Client, config ovhwrapper.Configuration
 			cl := ovhwrapper.GetK8SCluster(client, realslid, realclid)
 			if cl != nil {
 				//fmt.Println("\033[2J")  // clear screen
-				status(client, false, realslid, realclid)
+				Status(client, false, realslid, realclid)
 
 				if cl.Status == "READY" {
 					break
