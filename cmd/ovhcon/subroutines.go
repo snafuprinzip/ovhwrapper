@@ -3,15 +3,17 @@ package main
 import (
 	"encoding/base64"
 	"fmt"
-	"github.com/ovh/go-ovh/ovh"
-	"github.com/snafuprinzip/ovhwrapper"
 	"gopkg.in/yaml.v3"
 	"log"
 	"math/rand"
 	"os"
 	"path"
+	"strings"
 	"sync"
 	"time"
+
+	"github.com/ovh/go-ovh/ovh"
+	"github.com/snafuprinzip/ovhwrapper"
 )
 
 type Inventory struct {
@@ -24,8 +26,10 @@ type Clustergroup struct {
 }
 
 type CGProject struct {
-	Name     string   `yaml:"name"`
-	Clusters []string `yaml:"clusters"`
+	Name         string   `yaml:"name"`
+	Email        string   `yaml:"email"`
+	TeamsWebhook string   `yaml:"teamsWebhook"`
+	Clusters     []string `yaml:"clusters"`
 }
 
 // credentials returns information about the reader and writer accounts in different formats (yaml, json or text)
@@ -504,15 +508,16 @@ func statusString(client *ovh.Client, serviceline, cluster string) string {
 
 		for _, sl := range sls {
 			if MatchItem(sl, serviceline) {
-				s += fmt.Sprintf(sl.StatusMsg() + "\n")
+				s += sl.StatusMsg() + "\n"
 				for _, cl := range sl.Cluster {
 					if cluster == "" || MatchItem(cl, cluster) {
-						s += fmt.Sprintf(cl.StatusMsg() + "\n")
+						s += cl.StatusMsg() + "\n"
 						for _, n := range cl.Nodes {
 							f := flavors[n.Flavor]
-							s += fmt.Sprintf(n.StatusMsg(f) + "\n")
+							s += n.StatusMsg(f) + "\n"
 						}
 						s += "\n"
+						return s
 					}
 				}
 			}
@@ -749,8 +754,8 @@ func readInventory(reader *ovh.Client, config ovhwrapper.Configuration, inventor
 		// check if local inventory file "./clustergroups.yaml" exists
 		if fileExists("./clustergroups.yaml") {
 			inventory = "./clustergroups.yaml"
-		} else if fileExists("/etc/k8s/clustergroups.yml") {
-			inventory = "/etc/k8s/clustergroups.yml"
+		} else if fileExists("/etc/k8s/clustergroups.yaml") {
+			inventory = "/etc/k8s/clustergroups.yaml"
 		} else {
 			log.Fatalf("No inventory file found. Please specify one with the -i flag.")
 		}
@@ -775,7 +780,7 @@ func readInventory(reader *ovh.Client, config ovhwrapper.Configuration, inventor
 	return inv
 }
 
-func UpdateClusterGroup(reader, writer *ovh.Client, config ovhwrapper.Configuration, clustergroup, inventory string, background, latest, force bool) {
+func UpdateClusterGroup(reader, writer *ovh.Client, config ovhwrapper.Configuration, clustergroup, inventory string, latest, force bool) {
 	var wg sync.WaitGroup
 	var status chan string
 
@@ -790,12 +795,13 @@ func UpdateClusterGroup(reader, writer *ovh.Client, config ovhwrapper.Configurat
 			for _, project := range cg.Projects {
 				count += len(project.Clusters)
 			}
+			break
 		}
-		break
 	}
 
 	// create buffered channel
 	status = make(chan string, count)
+	fmt.Printf("Updating %d clusters in group %s\n", count, clustergroup)
 
 	for _, cg := range inv.Clustergroups {
 		// find selected cluster group
@@ -806,6 +812,8 @@ func UpdateClusterGroup(reader, writer *ovh.Client, config ovhwrapper.Configurat
 				for _, clustername := range project.Clusters {
 					realslid := ""
 					realclid := ""
+					slEmail := project.Email
+					slTeamsHook := project.TeamsWebhook
 
 					// determine project and cluster IDs
 					slids := ovhwrapper.GetServicelines(reader)
@@ -833,14 +841,16 @@ func UpdateClusterGroup(reader, writer *ovh.Client, config ovhwrapper.Configurat
 					}
 
 					wg.Add(1)
-					go func(wg *sync.WaitGroup, slid, clid string) {
+					go func(wg *sync.WaitGroup, sl, slid, cl, clid string) {
 						defer wg.Done()
-						err := ovhwrapper.UpdateK8SCluster(writer, realslid, realclid, latest, force)
-						if err != nil {
-							log.Fatalf("Failed to initiate cluster update: %v", err)
-						}
-						status <- MockCheckClusterUpdate(reader, writer, config, realslid, realclid)
-					}(&wg, realslid, realclid)
+						fmt.Printf("Updating cluster %25s (%s) in serviceline %25s (%s)\n", cl, clid, sl, slid)
+						//err := ovhwrapper.UpdateK8SCluster(writer, slid, clid, latest, force)
+						//if err != nil {
+						//	log.Fatalf("Failed to initiate cluster update: %v", err)
+						//}
+						res := CheckCronClusterUpdate(reader, writer, config, sl, slid, cl, clid, slEmail, slTeamsHook)
+						status <- res
+					}(&wg, project.Name, realslid, clustername, realclid)
 
 				} // cluster
 			} // project
@@ -848,15 +858,82 @@ func UpdateClusterGroup(reader, writer *ovh.Client, config ovhwrapper.Configurat
 		} // cluster group
 	}
 	wg.Wait()
-	fmt.Printf("All clusters in group %s updated!\n\n", clustergroup)
+	close(status)
+	fmt.Printf("\n%d clusters in group %s updated:\n\n", count, clustergroup)
+
 	for result := range status {
-		fmt.Println(result + "\n")
+		fmt.Println(result)
 	}
 }
 
-func MockCheckClusterUpdate(reader, writer *ovh.Client, config ovhwrapper.Configuration, realslid, realclid string) string {
-	time.Sleep(time.Second * time.Duration(rand.Intn(60)))
-	return statusString(reader, realslid, realclid)
+func CheckCronClusterUpdate(reader, writer *ovh.Client, config ovhwrapper.Configuration, sl, realslid, cl, realclid, email, teamshook string) string {
+	var curStatus, prevStatus string
+
+	logfile, err := os.OpenFile(path.Join("/var/log/k8s/updates", sl+"-"+cl+".log"), os.O_WRONLY|os.O_CREATE, 0660)
+	if err != nil {
+		log.Printf("Failed to open log file: %v", err)
+	}
+	defer logfile.Close()
+
+	fmt.Fprintf(logfile, "Update for %s started at %s...\n\n", cl, time.Now().Format(time.RFC1123Z))
+
+	// mock sleep to simulate a little bit of update time
+	time.Sleep(time.Second * time.Duration(rand.Intn(30)))
+
+	for {
+		client, err := ovhwrapper.CreateReader(config)
+		if err != nil {
+			log.Fatalf("Error creating OVH API Reader: %q\n", err)
+		}
+
+		cl := ovhwrapper.GetK8SCluster(client, realslid, realclid)
+		if cl != nil {
+			//fmt.Println("\033[2J")  // clear screen
+			curStatus = statusString(client, realslid, realclid)
+			// show status if status has changed since last check
+			if curStatus != prevStatus {
+				fmt.Fprintln(logfile, curStatus)
+				prevStatus = curStatus
+			}
+
+			// end update loop if cluster is in ready state
+			if cl.Status == "READY" {
+				break
+			}
+			time.Sleep(60 * time.Second)
+		}
+	}
+	fmt.Fprintf(logfile, "Update for %s finished at %s...\n", cl, time.Now().Format(time.RFC1123Z))
+	err = logfile.Close()
+	if err != nil {
+		log.Printf("Failed to close log file: %v", err)
+	}
+
+	recipients := []string{"mleimenmeier@me.com"}
+	if email != "" {
+		recipients = append(recipients, email)
+	}
+
+	teamshooks := []string{}
+	if teamshook != "" {
+		teamshooks = append(teamshooks, teamshook)
+	}
+
+	logtext, err := os.ReadFile(path.Join("/var/log/k8s/updates", sl+"-"+cl+".log"))
+	if err != nil {
+		log.Fatalf("Failed to read log file: %v", err)
+	} else {
+		log.Printf("Sending mail for %s to %s...\n", cl, strings.Join(recipients, ", "))
+		err := SendMail("k8s Update: "+cl, string(logtext), recipients)
+		if err != nil {
+			log.Printf("Failed to send mail: %v", err)
+		}
+		err = TeamsNotify("k8s Update: "+cl, string(logtext), teamshooks)
+		if err != nil {
+			log.Printf("Failed to send teams notification: %v", err)
+		}
+	}
+	return curStatus
 }
 
 func UpdateCluster(reader, writer *ovh.Client, config ovhwrapper.Configuration, serviceid, clusterid string, background, latest, force bool) {

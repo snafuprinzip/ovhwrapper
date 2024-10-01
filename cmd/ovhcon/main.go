@@ -84,7 +84,7 @@ func main() {
 
 	cmd := &cli.Command{
 		Name:      "ovhcon",
-		Version:   "v0.1.0",
+		Version:   "v0.1.1",
 		Copyright: "(c) 2024 Michael Leimenmeier",
 		Usage:     "cli tool for the ovh api",
 		UsageText: "ovhcon <command> [subcommand] [options]",
@@ -162,18 +162,15 @@ func main() {
 						Aliases: []string{"g"},
 						Usage:   "update a group of clusters",
 						Flags: []cli.Flag{
-							&cli.StringFlag{Name: "clustergroup", Aliases: []string{"s"}, Usage: "name of a group of clusters"},
+							&cli.StringFlag{Name: "clustergroup", Aliases: []string{"g"}, Usage: "name of a group of clusters"},
 							&cli.StringFlag{Name: "inventory", Aliases: []string{"i"}, Usage: "inventory file"},
 							&cli.BoolFlag{Name: "force", Aliases: []string{"f"}, Usage: "force update"},
 							&cli.BoolFlag{Name: "latest", Aliases: []string{"l"},
 								Usage: "set strategy to LATEST_PATCH (default is NEXT_MINOR)"},
-							&cli.BoolFlag{Name: "background", Aliases: []string{"b"},
-								Usage: "if not set the cluster status will be printed in 1 minute intervals until the clusters all clusters are READY again, " +
-									"if background is set the program will exit immediately after starting the upgrades"},
 						},
 						Action: func(ctx context.Context, cmd *cli.Command) error {
 							UpdateClusterGroup(reader, writer, config, cmd.String("clustergroup"), cmd.String("inventory"),
-								cmd.Bool("background"), cmd.Bool("latest"), cmd.Bool("force"))
+								cmd.Bool("latest"), cmd.Bool("force"))
 							return nil
 						},
 					},
