@@ -2,12 +2,12 @@ package main
 
 import (
 	"context"
-	"fmt"
+	"log"
+	"os"
+
 	"github.com/ovh/go-ovh/ovh"
 	"github.com/snafuprinzip/ovhwrapper"
 	"github.com/urfave/cli/v3"
-	"log"
-	"os"
 )
 
 // global command options
@@ -62,19 +62,6 @@ func main() {
 		log.Fatalf("Error getting available flavors: %q\n", err)
 	}
 
-	for _, project := range GlobalInventory {
-		fmt.Println(project.SLDetails.Description)
-		for _, cluster := range project.Cluster {
-			fmt.Printf("  %s: %s\n", cluster.ID, cluster.Name)
-			for _, node := range cluster.Nodes {
-				fmt.Printf("    %s\n", node.Name)
-			}
-			for _, nodepool := range cluster.Nodepools {
-				fmt.Printf("    %s\n", nodepool.Name)
-			}
-		}
-	}
-
 	globalFlags := []cli.Flag{
 		&cli.BoolFlag{
 			Name:  "debug",
@@ -96,8 +83,9 @@ func main() {
 
 	cmd := &cli.Command{
 		Name:      "ovhctl",
-		Version:   "v0.1.2",
-		Copyright: "(c) 2024 Michael Leimenmeier",
+		Version:   "v0.1.5",
+		Copyright: "(c) 2024 IHK GfI",
+		Authors:   []any{"Michael Leimenmeier"},
 		Usage:     "cli tool for the ovh api",
 		UsageText: "ovhctl <command> [subcommand] [options]",
 		Flags:     globalFlags,
@@ -174,18 +162,15 @@ func main() {
 						Aliases: []string{"g"},
 						Usage:   "update a group of clusters",
 						Flags: []cli.Flag{
-							&cli.StringFlag{Name: "clustergroup", Aliases: []string{"s"}, Usage: "name of a group of clusters"},
+							&cli.StringFlag{Name: "clustergroup", Aliases: []string{"g"}, Usage: "name of a group of clusters"},
 							&cli.StringFlag{Name: "inventory", Aliases: []string{"i"}, Usage: "inventory file"},
 							&cli.BoolFlag{Name: "force", Aliases: []string{"f"}, Usage: "force update"},
 							&cli.BoolFlag{Name: "latest", Aliases: []string{"l"},
 								Usage: "set strategy to LATEST_PATCH (default is NEXT_MINOR)"},
-							&cli.BoolFlag{Name: "background", Aliases: []string{"b"},
-								Usage: "if not set the cluster status will be printed in 1 minute intervals until the clusters all clusters are READY again, " +
-									"if background is set the program will exit immediately after starting the upgrades"},
 						},
 						Action: func(ctx context.Context, cmd *cli.Command) error {
 							UpdateClusterGroup(reader, writer, config, cmd.String("clustergroup"), cmd.String("inventory"),
-								cmd.Bool("background"), cmd.Bool("latest"), cmd.Bool("force"))
+								cmd.Bool("latest"), cmd.Bool("force"))
 							return nil
 						},
 					},
@@ -232,6 +217,74 @@ func main() {
 							return nil
 						},
 					},
+				},
+			},
+
+			{
+				Name:    "volumes",
+				Aliases: []string{"vol"},
+				Usage:   "persistent ovh volumes",
+				Commands: []*cli.Command{
+					{
+						Name:    "list",
+						Aliases: []string{"l"},
+						Usage: "get kubeconfig from ovh cloud and save them to file, to certificate files or update " +
+							"entries in a central kubeconfig file",
+						Flags: []cli.Flag{
+							&cli.BoolFlag{Name: "all", Aliases: []string{"a"}, Usage: "all servicelines and clusters"},
+							&cli.StringFlag{Name: "serviceline", Aliases: []string{"s"}, Usage: "serviceline id or name"},
+							&cli.StringFlag{Name: "cluster", Aliases: []string{"c"}, Usage: "cluster id or name"},
+							&cli.BoolFlag{Name: "unattached", Aliases: []string{"u"}, Usage: "list only unattached volumes"},
+						},
+						Action: func(ctx context.Context, cmd *cli.Command) error {
+							ListOVHVolumes(reader, writer, cmd.Bool("all"), cmd.String("serviceline"),
+								cmd.String("cluster"), cmd.Bool("unattached"))
+							return nil
+						},
+					},
+					{
+						Name:    "describe",
+						Aliases: []string{"d"},
+						Usage: "get kubeconfig from ovh cloud and save them to file, to certificate files or update " +
+							"entries in a central kubeconfig file",
+						Flags: []cli.Flag{
+							&cli.BoolFlag{Name: "all", Aliases: []string{"a"}, Usage: "all servicelines and clusters"},
+							&cli.StringFlag{Name: "serviceline", Aliases: []string{"s"}, Usage: "serviceline id or name"},
+							&cli.StringFlag{Name: "cluster", Aliases: []string{"c"}, Usage: "cluster id or name"},
+							&cli.StringFlag{Name: "output", Aliases: []string{"o"}, Usage: "set output format [yaml, json, text]"},
+							&cli.BoolFlag{Name: "unattached", Aliases: []string{"u"}, Usage: "list only unattached volumes"},
+						},
+						Action: func(ctx context.Context, cmd *cli.Command) error {
+							DescribeOVHVolumes(reader, writer, cmd.Bool("all"), cmd.String("serviceline"),
+								cmd.String("cluster"), cmd.Bool("unattached"), cmd.String("output"))
+							return nil
+						},
+					},
+					{
+						Name:  "delete",
+						Usage: "delete ovh volume",
+						Flags: []cli.Flag{
+							&cli.StringFlag{Name: "serviceline", Aliases: []string{"s"}, Usage: "serviceline id or name"},
+							&cli.StringFlag{Name: "cluster", Aliases: []string{"c"}, Usage: "cluster id or name"},
+							&cli.BoolFlag{Name: "force", Aliases: []string{"f"},
+								Usage: "by default only volumes with no pods are deleted, use this flag to delete all volumes"},
+						},
+						Action: func(ctx context.Context, cmd *cli.Command) error {
+							DeleteOVHVolume(reader, writer, cmd.String("serviceline"),
+								cmd.String("cluster"), cmd.Bool("force"))
+							return nil
+						},
+					},
+				},
+			},
+
+			{
+				Name:    "flavors",
+				Aliases: []string{"f"},
+				Usage:   "list available nodepool flavors",
+				Action: func(ctx context.Context, cmd *cli.Command) error {
+					ListFlavors(reader, Flavors)
+					return nil
 				},
 			},
 			{

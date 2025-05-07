@@ -1,0 +1,26 @@
+clustergroups:
+  - name: test
+    servicelines:
+      - name: SL1
+        clusters:
+          - devops-test1
+          - backup-test1
+  - name: nonprod
+    servicelines:
+      - name: SL1
+        clusters:
+          - nonprod1
+          - nonprod2
+  - name: devops
+    servicelines:
+      - name: SL1
+        clusters:
+          - devops-prod1
+  - name: prod
+    servicelines:
+      - name: SL1
+        clusters:
+          - prod1
+      - name: SL2
+        clusters:
+          - sl2prod1
