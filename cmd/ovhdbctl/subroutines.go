@@ -184,6 +184,46 @@ func Status(client *ovh.Client, all bool, serviceline, db string) {
 // a serviceline (when -d is not set), a serviceline and all it's databases (when -a is set as well)
 // or a specific database (when -s and -d is set, including serviceline if -a is set as well)
 func Describe(client *ovh.Client, all bool, serviceid, db, output string) {
+	if all { // list all servicelines and their databases
+		for _, sl := range GlobalInventory {
+			fmt.Printf("%s\n---\n", ovhwrapper.ToYaml(sl))
+			for _, database := range sl.Databases {
+				fmt.Printf("%s\n---\n", ovhwrapper.ToYaml(database))
+			}
+			fmt.Println()
+		}
+	} else if serviceid != "" { // show databases for a specific serviceline
+		var sl ovhwrapper.ServiceLine
+
+		for _, s := range GlobalInventory {
+			if MatchItem(s, serviceid) {
+				sl = s
+				break
+			}
+		}
+
+		if sl.ID == "" {
+			log.Printf("Service ID not found: %s", serviceid)
+			return
+		}
+
+		fmt.Printf("%s\n---\n", ovhwrapper.ToYaml(sl))
+		for _, database := range sl.Databases {
+			fmt.Printf("%s\n---\n", ovhwrapper.ToYaml(database))
+		}
+		fmt.Println()
+	} else { // serviceid == ""
+		for _, sl := range GlobalInventory {
+			if len(sl.Databases) == 0 {
+				continue
+			}
+			fmt.Printf("%s\n---\n", ovhwrapper.ToYaml(sl))
+			for _, database := range sl.Databases {
+				fmt.Printf("%s\n---\n", ovhwrapper.ToYaml(database))
+			}
+			fmt.Println()
+		}
+	}
 }
 
 func UpdateDatabase(reader, writer *ovh.Client, config ovhwrapper.Configuration, serviceid, db string) {
