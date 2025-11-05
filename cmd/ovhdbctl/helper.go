@@ -47,8 +47,8 @@ func MatchItem[T ovhwrapper.ServiceLine | ovhwrapper.OVHDatabase](object T, iden
 		if object.ID == identifier || object.SLDetails.Description == identifier || ovhwrapper.ShortenName(object.SLDetails.Description) == identifier {
 			match = true
 		}
-	case ovhwrapper.K8SCluster:
-		if object.ID == identifier || object.Name == identifier || ovhwrapper.ShortenName(object.Name) == identifier {
+	case ovhwrapper.OVHDatabase:
+		if object.Id.String() == identifier || object.Description == identifier || ovhwrapper.ShortenName(object.Description) == identifier {
 			match = true
 		}
 	}

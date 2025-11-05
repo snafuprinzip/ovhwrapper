@@ -206,7 +206,7 @@ func Describe(client *ovh.Client, all bool, serviceid, databaseid, output string
 				break
 			}
 
-			if db.Id.String() == "" {
+			if db.Id.String() == "00000000-0000-0000-0000-000000000000" {
 				log.Printf("Database ID not found: %s", db.Id.String())
 				return
 			}
