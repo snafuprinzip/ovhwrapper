@@ -205,14 +205,14 @@ func Describe(client *ovh.Client, all bool, serviceid, databaseid, output string
 				db = d
 				break
 			}
-
-			if db.Id.String() == "00000000-0000-0000-0000-000000000000" {
-				log.Printf("Database ID not found: %s", db.Id.String())
-				return
-			}
-
-			fmt.Printf("%s\n---\n", ovhwrapper.ToYaml(db))
 		}
+
+		if db.Id.String() == "00000000-0000-0000-0000-000000000000" {
+			log.Printf("Database ID not found: %s", db.Id.String())
+			return
+		}
+
+		fmt.Printf("%s\n---\n", ovhwrapper.ToYaml(db))
 		fmt.Println()
 
 	} else { // all is true
