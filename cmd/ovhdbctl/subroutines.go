@@ -162,7 +162,15 @@ func List(client *ovh.Client, all bool, serviceid string) {
 		fmt.Println()
 	} else { // serviceid == ""
 		for _, sl := range GlobalInventory {
+			if len(sl.Databases) == 0 {
+				continue
+			}
 			fmt.Printf("%-25s (%s)\n", sl.SLDetails.Description, sl.ID)
+			for _, database := range sl.Databases {
+				fmt.Printf("  %-40s (%s) \t %10s:%5s [%s]\n", database.Description,
+					database.Id, database.Engine, database.Version, database.Status)
+			}
+			fmt.Println()
 		}
 	}
 }
