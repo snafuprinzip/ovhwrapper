@@ -132,9 +132,10 @@ func Logout(writer *ovh.Client, config ovhwrapper.Configuration) {
 func List(client *ovh.Client, all bool, serviceid string) {
 	if all { // list all servicelines and their databases
 		for _, sl := range GlobalInventory {
-			fmt.Printf("%-25s (%s) \t %s \n", ovhwrapper.ShortenName(sl.SLDetails.Description), sl.ID, sl.SLDetails.Description)
+			fmt.Printf("%-32s (%s)\n", ovhwrapper.ShortenName(sl.SLDetails.Description), sl.ID)
 			for _, database := range sl.Databases {
-				fmt.Printf("  %-25s (%s) \t %s \n", ovhwrapper.ShortenName(database.Description), database.Id, database.Description)
+				fmt.Printf("  %-32s (%s) \t %10s:%5s [%s]\n", ovhwrapper.ShortenName(database.Description),
+					database.Id, database.Engine, database.Version, database.Status)
 			}
 			fmt.Println()
 		}

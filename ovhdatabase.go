@@ -191,7 +191,7 @@ func GetDatabaseIDs(client *ovh.Client, service string) ([]uuid.UUID, error) {
 func GetDatabase(client *ovh.Client, service string, databaseID uuid.UUID) *OVHDatabase {
 	var db OVHDatabase
 	id := databaseID.String()
-	if err := client.Get("/cloud/project/"+service+"/database/"+id, &db); err != nil {
+	if err := client.Get("/cloud/project/"+service+"/database/service/"+id, &db); err != nil {
 		fmt.Printf("Error getting database for %s in sl %s: %q\n", databaseID, service, err)
 		return nil
 	}
