@@ -2,10 +2,81 @@ package main
 
 import (
 	"fmt"
+	"log"
+
+	"github.com/google/uuid"
 	"github.com/ovh/go-ovh/ovh"
 	"github.com/snafuprinzip/ovhwrapper"
-	"log"
 )
+
+func GatherGlobalInventory(client *ovh.Client) {
+	GlobalInventory = []ovhwrapper.ServiceLine{}
+	projectIDs := ovhwrapper.GetServicelines(client)
+
+	projectChannel := make(chan ovhwrapper.ServiceLine)
+	for _, projectID := range projectIDs {
+		go GatherServiceline(client, projectID, projectChannel)
+	}
+	for len(GlobalInventory) < len(projectIDs) {
+		GlobalInventory = append(GlobalInventory, <-projectChannel)
+	}
+}
+
+func GatherServiceline(client *ovh.Client, projectID string, projectChan chan<- ovhwrapper.ServiceLine) {
+	detailChan := make(chan ovhwrapper.OVHServiceLine)
+	dbsChan := make(chan []ovhwrapper.OVHDatabase)
+
+	go func(detailChan chan<- ovhwrapper.OVHServiceLine) {
+		servicedetails, err := ovhwrapper.GetServicelineDetails(client, projectID)
+		if err != nil {
+			log.Printf("Failed to get serviceline details: %v", err)
+			detailChan <- ovhwrapper.OVHServiceLine{}
+		} else {
+			detailChan <- servicedetails
+		}
+	}(detailChan)
+
+	dbIDs, err := ovhwrapper.GetDatabaseIDs(client, projectID)
+	if err != nil {
+		log.Fatalf("Failed to get database IDs: %v", err)
+	}
+
+	go GatherDatabases(client, projectID, dbIDs, dbsChan)
+
+	serviceline := ovhwrapper.ServiceLine{
+		ID:        projectID,
+		SLDetails: <-detailChan,
+		Databases: <-dbsChan,
+	}
+
+	projectChan <- serviceline
+}
+
+func GatherDatabases(client *ovh.Client, projectID string, dbIDs []uuid.UUID, dbsChan chan<- []ovhwrapper.OVHDatabase) {
+	var databases []ovhwrapper.OVHDatabase
+	dbChan := make(chan ovhwrapper.OVHDatabase)
+
+	for _, databaseID := range dbIDs {
+		go func(projectID string, databaseID uuid.UUID, dbsChan chan<- ovhwrapper.OVHDatabase) {
+			GatherDatabase(client, projectID, databaseID, dbsChan)
+		}(projectID, databaseID, dbChan)
+	}
+
+	for range len(dbIDs) {
+		database := <-dbChan
+		databases = append(databases, database)
+	}
+	close(dbChan)
+	dbsChan <- databases
+}
+
+func GatherDatabase(client *ovh.Client, projectID string, databaseID uuid.UUID, dbsChan chan<- ovhwrapper.OVHDatabase) {
+	database := ovhwrapper.GetDatabase(client, projectID, databaseID)
+
+	if database != nil {
+		dbsChan <- *database
+	}
+}
 
 // Credentials returns information about the reader and writer accounts in different formats (yaml, json or text)
 func Credentials(reader, writer *ovh.Client, format string) {
@@ -59,6 +130,39 @@ func Logout(writer *ovh.Client, config ovhwrapper.Configuration) {
 // List lists servicelines and their databases (when -a is set),
 // servicelines (when -s is not set) or databases (when -s is set)
 func List(client *ovh.Client, all bool, serviceid string) {
+	if all { // list all servicelines and their databases
+		for _, sl := range GlobalInventory {
+			fmt.Printf("%-25s (%s) \t %s \n", ovhwrapper.ShortenName(sl.SLDetails.Description), sl.ID, sl.SLDetails.Description)
+			for _, database := range sl.Databases {
+				fmt.Printf("  %-25s (%s) \t %s \n", ovhwrapper.ShortenName(database.Description), database.Id, database.Description)
+			}
+			fmt.Println()
+		}
+	} else if serviceid != "" { // show databases for a specific serviceline
+		var sl ovhwrapper.ServiceLine
+
+		for _, s := range GlobalInventory {
+			if MatchItem(s, serviceid) {
+				sl = s
+				break
+			}
+		}
+
+		if sl.ID == "" {
+			log.Printf("Service ID not found: %s", serviceid)
+			return
+		}
+
+		fmt.Printf("%-25s (%s) \t %s \n", ovhwrapper.ShortenName(sl.SLDetails.Description), sl.ID, sl.SLDetails.Description)
+		for _, database := range sl.Databases {
+			fmt.Printf("  %-25s (%s) \t %s \n", ovhwrapper.ShortenName(database.Description), database.Id, database.Description)
+		}
+		fmt.Println()
+	} else { // serviceid == ""
+		for _, sl := range GlobalInventory {
+			fmt.Printf("%-25s (%s) \t %s \n", ovhwrapper.ShortenName(sl.SLDetails.Description), sl.ID, sl.SLDetails.Description)
+		}
+	}
 }
 
 // Status shows the current status of servicelines and their databases (when -a is set),
@@ -68,6 +172,9 @@ func Status(client *ovh.Client, all bool, serviceline, db string) {
 
 // Describe shows the details of servicelines and their databases (when only -a is set),
 // a serviceline (when -d is not set), a serviceline and all it's databases (when -a is set as well)
-// or a specific cluster (when -s and -d is set, including serviceline if -a is set as well)
+// or a specific database (when -s and -d is set, including serviceline if -a is set as well)
 func Describe(client *ovh.Client, all bool, serviceid, db, output string) {
+}
+
+func UpdateDatabase(reader, writer *ovh.Client, config ovhwrapper.Configuration, serviceid, db string) {
 }

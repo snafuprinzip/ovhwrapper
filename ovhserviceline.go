@@ -2,9 +2,10 @@ package ovhwrapper
 
 import (
 	"fmt"
-	"github.com/ovh/go-ovh/ovh"
 	"strings"
 	"time"
+
+	"github.com/ovh/go-ovh/ovh"
 )
 
 type OVHServiceLine struct {
@@ -31,6 +32,7 @@ type ServiceLine struct {
 	ID        string
 	SLDetails OVHServiceLine
 	Cluster   []K8SCluster
+	Databases []OVHDatabase
 }
 
 func (sl ServiceLine) Details() string {
@@ -62,7 +64,7 @@ func GetServicelines(client *ovh.Client) []string {
 	var servicelist []string
 
 	if err := client.Get("/cloud/project/", &servicelist); err != nil {
-		fmt.Printf("Error getting kube service list: %q\n", err)
+		fmt.Printf("Error getting serviceline list: %q\n", err)
 		return servicelist
 	}
 
@@ -73,7 +75,7 @@ func GetOVHServiceline(client *ovh.Client, service string) *OVHServiceLine {
 	serviceline := &OVHServiceLine{}
 
 	if err := client.Get("/cloud/project/"+service, serviceline); err != nil {
-		fmt.Printf("Error getting kube service list: %q\n", err)
+		fmt.Printf("Error getting serviceline list: %q\n", err)
 		return nil
 	}
 

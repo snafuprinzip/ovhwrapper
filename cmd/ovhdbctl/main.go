@@ -2,16 +2,19 @@ package main
 
 import (
 	"context"
+	"log"
+	"os"
+
 	"github.com/ovh/go-ovh/ovh"
 	"github.com/snafuprinzip/ovhwrapper"
 	"github.com/urfave/cli/v3"
-	"log"
-	"os"
 )
 
 // global command options
 var debug bool
 var verbose bool
+
+var GlobalInventory []ovhwrapper.ServiceLine
 
 func main() {
 	var reader *ovh.Client
@@ -141,7 +144,7 @@ func main() {
 							//		"if background is set the program will exit immediately after starting the upgrade"},
 						},
 						Action: func(ctx context.Context, cmd *cli.Command) error {
-							UpdateDB(reader, writer, config, cmd.String("serviceline"), cmd.String("database"))
+							UpdateDatabase(reader, writer, config, cmd.String("serviceline"), cmd.String("database"))
 							return nil
 						},
 					},

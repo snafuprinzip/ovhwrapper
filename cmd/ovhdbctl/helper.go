@@ -16,11 +16,11 @@ import (
 func CollectInformation(client *ovh.Client) []ovhwrapper.ServiceLine {
 	var servicelines []ovhwrapper.ServiceLine
 
-	services := ovhwrapper.GetServicelines(client)
-	for _, service := range services {
-		serviceline := CollectServiceline(client, service)
-		servicelines = append(servicelines, *serviceline)
-	}
+	//services := ovhwrapper.GetServicelines(client)
+	//for _, service := range services {
+	//serviceline := CollectServiceline(client, service)
+	//servicelines = append(servicelines, *serviceline)
+	//}
 
 	return servicelines
 }
@@ -39,52 +39,8 @@ func GetServiceline(client *ovh.Client, serviceid string) *ovhwrapper.ServiceLin
 	return &serviceline
 }
 
-// CollectServiceline collects information about a serviceline, including its clusters.
-func CollectServiceline(client *ovh.Client, serviceid string) *ovhwrapper.ServiceLine {
-	servicedetails, err := ovhwrapper.GetServicelineDetails(client, serviceid)
-	if err != nil {
-		log.Fatalf("Failed to get serviceline details: %v", err)
-	}
-	clusterids, err := ovhwrapper.GetK8SClusterIDs(client, serviceid)
-	if err != nil {
-		log.Fatalf("Failed to get cluster IDs: %v", err)
-	}
-	var clusterlist []ovhwrapper.K8SCluster
-	for _, clusterid := range clusterids {
-		cluster := CollectCluster(client, serviceid, clusterid)
-		if cluster != nil {
-			clusterlist = append(clusterlist, *cluster)
-		}
-	}
-	serviceline := ovhwrapper.ServiceLine{
-		ID:        serviceid,
-		SLDetails: servicedetails,
-		Cluster:   clusterlist,
-	}
-
-	return &serviceline
-}
-
-// GetCluster asks the API for 'shallow' information about a specific cluster, excluding nested information
-// like etcd usage, nodes or nodepools
-func GetCluster(client *ovh.Client, serviceid, clusterid string) *ovhwrapper.K8SCluster {
-	return ovhwrapper.GetK8SCluster(client, serviceid, clusterid)
-}
-
-// CollectCluster returns information about a Cluster, including its etcd usage, nodepools and nodes.
-func CollectCluster(client *ovh.Client, serviceid, clusterid string) *ovhwrapper.K8SCluster {
-	cluster := ovhwrapper.GetK8SCluster(client, serviceid, clusterid)
-	var err error
-
-	cluster, err = ovhwrapper.GetK8SClusterDetails(client, cluster, serviceid, clusterid)
-	if err != nil {
-		log.Printf("Failed to get cluster details: %v", err)
-	}
-	return cluster
-}
-
 // MatchItem will check if the id or the (abbreviated) name matches with the identifier and returns true or false
-func MatchItem[T ovhwrapper.ServiceLine | ovhwrapper.K8SCluster](object T, identifier string) bool {
+func MatchItem[T ovhwrapper.ServiceLine | ovhwrapper.OVHDatabase](object T, identifier string) bool {
 	match := false
 	switch object := any(object).(type) { // lazy hack, as generic functions implement specific types and not interfaces, so we cast to any to check its type
 	case ovhwrapper.ServiceLine:
@@ -112,7 +68,7 @@ func SendMail(subject, body string, to []string) error {
 	r := strings.NewReplacer("\r\n", "", "\r", "", "\n", "", "%0a", "", "%0d", "")
 
 	addr := "127.0.0.1:25"
-	from := "k8s updater <ansible@189extans001.gfi.ihk.de>"
+	from := "ovhdbctl <ansible@189extans001.gfi.ihk.de>"
 
 	c, err := smtp.Dial(addr)
 	if err != nil {
