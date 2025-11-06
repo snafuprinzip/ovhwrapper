@@ -16,7 +16,7 @@ type Database interface {
 	DBVersion() string
 }
 
-type OVHDatabases []Database
+type OVHDatabases []OVHDatabase
 
 type OVHDatabase struct {
 	CreatedAt time.Time `json:"createdAt"`
