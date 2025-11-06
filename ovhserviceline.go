@@ -32,7 +32,7 @@ type ServiceLine struct {
 	ID        string
 	SLDetails OVHServiceLine
 	Cluster   []K8SCluster
-	Databases []OVHDatabase
+	Databases OVHDatabases
 }
 
 func (sl ServiceLine) Details() string {
