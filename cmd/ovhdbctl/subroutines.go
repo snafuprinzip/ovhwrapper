@@ -24,7 +24,7 @@ func GatherGlobalInventory(client *ovh.Client) {
 
 func GatherServiceline(client *ovh.Client, projectID string, projectChan chan<- ovhwrapper.ServiceLine) {
 	detailChan := make(chan ovhwrapper.OVHServiceLine)
-	dbsChan := make(chan []ovhwrapper.OVHDatabase)
+	dbsChan := make(chan []ovhwrapper.Database)
 
 	go func(detailChan chan<- ovhwrapper.OVHServiceLine) {
 		servicedetails, err := ovhwrapper.GetServicelineDetails(client, projectID)
